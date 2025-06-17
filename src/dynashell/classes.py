@@ -5,7 +5,7 @@ import importlib
 import traceback
 import dynashell.check as check
 import dynashell.utils as utils
-from dynashell.utils import choose,extend
+from   dynashell.utils import choose,extend
 
 class Shell:
 

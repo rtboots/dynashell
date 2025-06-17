@@ -1,5 +1,5 @@
 import sys
-from simpleshell.classes import Shell
+from dynashell.classes import Shell
 
 def instance():
 

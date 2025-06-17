@@ -6,8 +6,8 @@ import json
 import shutil
 import os
 from pathlib import Path
-import dynashell.check as check
 import types
+import dynashell.check as check
 
 def choose(by,*lst,**hsh):
 
