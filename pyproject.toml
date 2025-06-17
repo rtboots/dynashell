@@ -4,6 +4,20 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "dynashell"
 version = "0.0.1"
+authors = [
+    { name="Ralph Boots" }
+]
+description = "A flexible shell to run python snippets in a configurable context"
+readme = "README.md"
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Operating System :: OS Independent",
+]
+license = "GPL-3.0-or-later"
+license-files = ["LICEN[CS]E*"]
 dependencies = [
     'PyYAML'
 ]
+[project.urls]
+Homepage = "https://github.com/rtboots/dynashell"
