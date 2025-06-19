@@ -1,0 +1,71 @@
+# -----
+# Section : path
+#
+# Define path prefixes that can be used in other path definitions.
+# The builtin prefix "system:" points to the directory of the running python instance.
+# The builtin prefix "shell:" points to the directory of the shell configuration file.
+# -----
+
+path:
+  temp: shell:/temp
+  common: shell:/../common
+
+# -----
+# Section : module
+#
+# Define the directories that should be searched for import statements used in scripts
+# -----
+
+module:
+  - shell:/module
+  - common:/module
+
+# -----
+# Section : include
+#
+# Header code to be included in every script
+# -----
+
+include: |
+  import common.connect as connect
+
+# -----
+# Section : script
+#
+# Define the directories that are searched for the script to execute (ordered from first searched to last)
+# -----
+
+script:
+  - shell:/script
+  - common:/script
+
+# -----
+# Section : start
+#
+# List of scripts to be executes on Shell startup (ordered from first to last)
+# -----
+
+start:
+  - common_startup
+  - session_startup
+
+# -----
+# Section : <user defined>
+#
+# Anything the scripts need during execution (passwords, urls, ...)
+# -----
+
+connect:
+  dev:
+    host:     dev_host
+    user:     dev_user
+    password: dev_password
+  uat:
+    host:     uat_host
+    user:     uat_user
+    password: uat_password
+  prd:
+    host:     prd_host
+    user:     prd_user
+    password: prd_password
+

@@ -1,0 +1,13 @@
+print('...common_startup')
+
+# -----
+# shell.export() will make 'label' available to subsequent script invocations as a variable (see session_setup)
+# -----
+
+shell.export('label','Exported Value')
+
+# -----
+# shell.set() will set a shell value can be retrieved with shell.get()  (see session_setup)
+# -----
+
+shell.set('message','Shell Value')

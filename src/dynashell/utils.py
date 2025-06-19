@@ -37,8 +37,6 @@ def save_file(file,data):
         f.write(data)
         f.close()
 
-    print(file)
-
 def load_yaml(file):
 
     check.file_exists(file)
@@ -129,130 +127,12 @@ def remove_path(path):
 
     shutil.rmtree(path,onerror = lambda _func,_path,_info : print(_info))
 
-# def parse_value(txt):
-#
-#     txt = txt.strip()
-#
-#     if txt=='null'  : return True,None
-#     if txt=='None'  : return True,None
-#     if txt=='true'  : return True,True
-#     if txt=='True'  : return True,True
-#     if txt=='false' : return True,False
-#     if txt=='False' : return True,False
-#
-#     try:
-#         return True,int(txt)
-#     except:
-#         pass
-#
-#     try:
-#         return True,float(txt)
-#     except:
-#         pass
-#
-#     if txt.startswith('"') | txt.startswith('\''):
-#         return True,txt[1:-1]
-#
-#     return False,txt
-
 def unique_id(chrset,length):
 
     ret = ""
     for cnt in range(0,length):
         ret += chrset[random.randint(0,len(chrset)-1)]
     return ret
-
-# def parse_command(line,use_tokenizer=True):
-#
-#     # <name> <text>
-#     # =
-#     # <name> <data1> .. <dataN> <value1>=<val> ... <valueN>=<val> --<flag1>[=<val>] .. --<flagN>[=<val<]
-#
-#     cmd = {
-#         'name'      : None,
-#         'text'      : None,
-#         'data'      : [], # data
-#         'values'    : {}, # values
-#         'flags'     : {}  # flags
-#     }
-#
-#     line = line.strip()
-#     text = line
-#
-#     # NOTE : The tokenizer cannot be used for the startup command line as it contains 2 path values ("D:/...") which cannot be parsed yet
-#
-#     if use_tokenizer:
-#
-#         for tok in Tokenizer(line).parse():
-#
-#             if tok.typ == Token.DATA:
-#                 cmd['data'].append(tok.val)
-#             if tok.typ == Token.VALUE:
-#                 _,cmd['values'][tok.key] = parse_value(tok.val)
-#             if tok.typ == Token.FLAG:
-#                 _,cmd['flags'][tok.key] = parse_value(tok.val)
-#
-#     else:
-#
-#         line = line.replace('=',' = ')
-#         part = line.split()
-#
-#         while len(part)>0:
-#
-#             temp = part.pop(0).strip()
-#             if temp == '': continue
-#
-#             # check issues
-#
-#             if temp == '=':  raise Exception("Unpaired equal (=) sign")
-#             if temp == '--': raise Exception("Unpaired option (--) sign")
-#
-#             # flag
-#
-#             if temp.startswith("--"):
-#
-#                 key = temp[2:]
-#
-#                 if len(part) > 1:
-#
-#                     if part[0] == '=':
-#
-#                         part.pop(0)
-#                         _,cmd['flags'][key] = parse_value(part.pop(0).strip())
-#
-#                     else:
-#
-#                         cmd['flags'][key] = True
-#
-#                 else:
-#
-#                     cmd['flags'][key] = True
-#
-#             # data / value
-#
-#             else:
-#
-#                 if len(part) >1:
-#
-#                     if part[0] == '=':
-#
-#                         part.pop(0)
-#                         _,cmd['values'][temp] = parse_value(part.pop(0).strip())
-#
-#                     else:
-#
-#                         cmd['data'].append(temp)
-#
-#                 else:
-#
-#                     cmd['data'].append(temp)
-#
-#     name = cmd['data'].pop(0)
-#     cmd['name'] = name
-#     cmd['text'] = text[len(name)+1:].strip()
-#
-#     return cmd
-
 
 def pretty_print_dict(d,indent=0):
 
@@ -269,7 +149,6 @@ def extend(obj,methods):
     for mth in methods.keys():
         setattr(obj,mth,types.MethodType(methods[mth],obj))
 
-# Custom encoder for Decimal type in JSON
 class decimal_encoder(json.JSONEncoder):
     def default(self,obj):
         if isinstance(obj,Decimal):
@@ -280,7 +159,6 @@ def decimal_decoder(obj):
     for key,value in obj.items():
         if isinstance(value,str):
             if value.startswith("@D:"): obj[key] = Decimal(value[3:])
-            #obj[key] = Decimal(str(value))
     return obj
 
 

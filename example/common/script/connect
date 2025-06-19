@@ -1,0 +1,17 @@
+# -----
+# Invoke : 'connect [dev|uat|prd]'
+# -----
+
+# -----
+# config is one of the auto exported variables (shell,startup,config,command)
+# command.pop() removes the head item of the Command 'data' list
+# -----
+
+env = config.connect[command.pop()]
+
+# -----
+# connect is imported by the config.include section
+# -----
+
+connect.link(env.host,env.user,env.password)
+

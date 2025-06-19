@@ -1,0 +1,13 @@
+print('...session_startup')
+
+# -----
+# label was exported in common_setup and is now available as a variable
+# -----
+
+print(label)
+
+# -----
+# message was set as a shell value and can now be accessed with shell.get()
+# -----
+
+print(shell.get('message'))

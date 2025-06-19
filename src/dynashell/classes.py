@@ -23,7 +23,6 @@ class Shell:
         self.startup    = Command(line)
         self.config     = None
         self.command    = None
-        self.variable   = Dictionary()
         self.reader     = None
         self.utils      = utils
         self.check      = check
@@ -34,34 +33,44 @@ class Shell:
         self._module    = []
         self._script    = []
         self._counter   = 100
-        self._declare   = {}
+        self._variable  = Dictionary()
+        self._export    = {
+            'startup'   : self.startup
+        }
 
-        # Initialize system and session path
+        # Set "system:" path
 
         system_path = utils.slashed_path(os.getcwd())
         self._path['system']=system_path
-        session_file = choose(self.startup.flag.session,'./session.yaml')
-        session_path = utils.slashed_path(os.path.abspath(os.path.dirname(session_file)))
-        self._path['session']=session_path
 
-        # Load session configuration
+        # Get configuration file
 
-        self.config = self.load(session_file)
+        config_file = choose(self.startup.flag.config,'./config.yaml')
 
-        # Initialize path
+        # Set "shell:" path
+
+        shell_path = utils.slashed_path(os.path.abspath(os.path.dirname(config_file)))
+        self._path['shell']=shell_path
+
+        # Load shell configuration
+
+        self.config = self.load(config_file)
+        self._export['config'] = self.config
+
+        # Process config.path section
 
         hsh = self.config.get('path',{})
         for key in hsh.keys():
             self._path[key]=utils.slashed_path(self.path(hsh.get(key)))
 
-        # Determine temp path
+        # Determine temp path (for dynascript storage)
 
         if self._path.get('temp') is None:
-            self._path['temp'] = self.path("session:/temp")
+            self._path['temp'] = self.path("shell:/temp")
 
         utils.reset_path(self._path['temp'])
 
-        # Initialize _module
+        # Process config.module section
 
         lst = self.config.get('module',[])
         for itm in lst:
@@ -69,12 +78,12 @@ class Shell:
             self._module.append(pth)
             site.addsitedir(pth)
 
-        # Add temp path to _module
+        # Add shell temp path (for dynascript storage) to module locations
 
         self._module.append(self._path['temp'])
         site.addsitedir(self._path['temp'])
 
-        # Initialize _script
+        # Process config.script section
 
         lst = self.config.get('script',[])
         for itm in lst:
@@ -88,7 +97,7 @@ class Shell:
             time.sleep(0.25)
             self.execute(Command(itm))
 
-        # Start input reader
+        # Start command reader
 
         self.reader = Reader(self)
         self.reader.start()
@@ -97,6 +106,7 @@ class Shell:
 
         try:
             self.command = cmnd
+            self._export['command'] = cmnd
             label = cmnd.name
             body  = self.source(cmnd.name)
             file  = self.script(body,label)
@@ -117,30 +127,42 @@ class Shell:
     def script(self,body,label):
 
         tmp = ""
-        lst = self.config.get('import',[])
+
+        # Add configured include
+
+        inc = self.config.get('include')
+
+        if inc:
+            tmp += "# Configured include\n\n"
+            tmp += f"{inc.strip()}\n\n"
+
+        # Add shell instance
+
+        tmp += "# Shell Instance\n\n"
+        tmp += "from dynashell.main import instance\n"
+        tmp += "shell = instance()\n\n"
+
+        # Add exported variables
+
+        lst = self._export.keys()
         if len(lst):
-            tmp += "#Imports\n\n"
-            for itm in lst:
-                tmp += f"import {itm}\n"
-            print("\n")
+            tmp += "# Exported variables\n\n"
+            for key in lst:
+                tmp += f"{key} = shell.export('{key}')\n"
+            tmp += "\n"
 
-        tmp += "#Shell \n\n"
-        tmp += "from simpleshell.main import instance\n"
-        tmp += "sh = instance()\n\n"
+        # Add script source
 
-        lst = self._declare.keys()
-        if len(lst):
-            tmp += "# Variables\n\n"
-            for itm in lst:
-                tmp += f"{itm} = sh.variable.get('{itm}')\n"
-            print("\n")
-
-        tmp += f"# Source '{label}\n\n"
+        tmp += f"# Source '{label}'\n\n"
         tmp += body
+
+        # Save script to shell's temp directory
 
         file = f"script{self._counter}"
         self._counter += 1
         utils.save_file(self.path(f"temp:{file}.py"),tmp)
+
+        # Return dynascript filename
 
         return file
 
@@ -177,14 +199,39 @@ class Shell:
         else:
             utils.save_file(file,data)
 
-    def declare(self,key,val):
+    def export(self,*arg):
 
-        self.variable[key]=val
-        self._declare[key]=True
+        if len(arg)==1:
+
+            key = arg[0]
+            return self._export[key]
+
+        if len(arg)==2:
+
+            key,val = arg
+            if self._export.get(key):
+                raise Exception(f"Cannot re-declare {key}")
+
+            self._export[key]=arg[1]
+            return None
+
+        raise Exception("export can only be called with 1 or 2 arguments")
 
     def extend(self,methods):
 
         extend(self,methods)
+
+    def set(self,key,val):
+
+        self._variable.set(key, val)
+
+    def get(self,key,default=None):
+
+        return self._variable.get(key, default)
+
+    def has(self,key):
+
+        return self._variable.has(key)
 
 class Reader:
 
@@ -257,12 +304,14 @@ class Command:
         return False
 
     def pop(self):
+
         if len(self.data):
             return self.data.pop(0)
         else:
             return None
 
     def done(self):
+
         return len(self.data)==0
 
 class Dictionary:
@@ -293,6 +342,15 @@ class Dictionary:
             tmp = f"Cannot overwrite Dictionary method {key}"
             raise Exception(tmp)
 
+    def __getitem__(self,key):
+
+        if self.data().get(key):
+            val = self.data().get(key)
+            #print(f"Getting dictionary key {key} value {val}")
+            return Dictionary(val) if isinstance(val,dict) else val
+        else:
+            return None
+
     def __del__(self):
 
         del Dictionary.Instance[hash(self)]
@@ -307,7 +365,6 @@ class Dictionary:
         self.data().clear()
 
     def copy(self):
-
         return Dictionary(self.data().copy())
 
     def keys(self):
@@ -350,7 +407,7 @@ class Dictionary:
             else:
                 return default
 
-        leaf = node.get(leaf,default)
+        leaf = choose(node.get(leaf),default)
 
         return Dictionary(leaf) if isinstance(leaf,dict) else leaf
 

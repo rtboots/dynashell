@@ -28,6 +28,7 @@ def none(chk,msg=None):
     if chk is not None: failure(msg)
 
 def not_none(chk,msg=None):
+
     if not msg: msg = "Value cannot be None"
     if chk is None: failure(msg)
 
