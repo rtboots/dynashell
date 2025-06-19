@@ -299,7 +299,12 @@ class Command:
     def see(self,chk):
 
         if len(self.data):
-            return self.data[0]==chk
+
+            if self.data[0]==chk:
+                self.data.pop(0)
+                return True
+            else:
+                return False
 
         return False
 
