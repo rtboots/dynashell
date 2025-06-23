@@ -1,15 +1,22 @@
 import os
 import site
+import sys
 import time
+import readline
 import importlib
 import traceback
 import dynashell.check as check
 import dynashell.utils as utils
+import dynashell.const as const
 from   dynashell.utils import choose,extend
 
 class Shell:
 
+    # Shell Instance storage
+
     Instance = None
+
+    #
 
     def __init__(self,line):
 
@@ -22,6 +29,7 @@ class Shell:
 
         self.startup    = Command(line)
         self.config     = None
+        self.setting    = {}
         self.command    = None
         self.reader     = None
         self.utils      = utils
@@ -56,6 +64,30 @@ class Shell:
 
         self.config = self.load(config_file)
         self._export['config'] = self.config
+
+        # Initialize default setting
+
+        for key,val in const.setting['default'].items():
+            self.setting[key]=val
+
+        # Initialize platform setting
+
+        for platform in const.setting.keys():
+            if sys.platform.startswith(platform):
+                 for key, val in const.setting[platform].items():
+                     self.setting[key]=val
+
+        # Process config.setting section
+
+        hsh = self.config.get('setting',{})
+        for key,val in hsh.items():
+            if not key in self.setting.keys(): raise Exception(f"Unknown setting key {key} encountered")
+            self.setting[key]=val
+
+        # Create setting object
+
+        self.setting = Setting(self.setting)
+        self._export['setting'] = self.setting
 
         # Process config.path section
 
@@ -94,7 +126,7 @@ class Shell:
 
         lst = self.config.get('start',[])
         for itm in lst:
-            time.sleep(0.25)
+            time.sleep(self.setting.STARTUP_SCRIPT_DELAY)
             self.execute(Command(itm))
 
         # Start command reader
@@ -215,7 +247,7 @@ class Shell:
             self._export[key]=arg[1]
             return None
 
-        raise Exception("export can only be called with 1 or 2 arguments")
+        raise Exception("shell.export can only be called with 1 or 2 arguments")
 
     def extend(self,methods):
 
@@ -378,11 +410,16 @@ class Dictionary:
     def items(self):
         return self.data().items()
 
+    def update(self,hsh):
+
+        for key,val in hsh.items():
+            self.set(key,val)
+
     # -----
 
     def data(self,data=None):
 
-        return Dictionary.Data(hash(self), data)
+        return Dictionary.Data(hash(self),data)
 
     def set(self,key,val):
 
@@ -418,7 +455,7 @@ class Dictionary:
 
     def has(self,key):
 
-        return self.data().get(key) is not None
+        return self.get(key) is not None
 
     def load(self,file):
 
@@ -478,6 +515,31 @@ class Dictionary:
         return Dictionary.Instance[code]
 
     Instance = {}
+
+class Setting:
+
+    def __init__(self,data):
+
+        data['__init__']=True
+        self._data = data
+        data.pop('__init__')
+
+    def __getattr__(self,key):
+
+        if not key in self._data.keys(): raise Exception(f"Unknown setting key {key} encountered")
+
+        return self._data.get(key)
+
+    def __setattr__(self, key, value):
+
+        if value.__init__:
+             super().__setattr__(key,value)
+        else:
+            raise Exception("Setting is not allowed to be updated")
+
+    def __setitem__(self, key, value):
+
+        raise Exception("Setting is not allowed to be updated")
 
 class Token:
 
