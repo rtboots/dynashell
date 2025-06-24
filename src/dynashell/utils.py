@@ -1,6 +1,6 @@
 import random
 from decimal import Decimal
-
+from importlib import resources as resource_loader
 import yaml
 import json
 import shutil
@@ -161,5 +161,31 @@ def decimal_decoder(obj):
             if value.startswith("@D:"): obj[key] = Decimal(value[3:])
     return obj
 
+def load_resource(package,filename):
 
+    ret = None
+
+    if package:
+
+        inp_file = (resource_loader.files(package) / filename)
+
+        with inp_file.open("rt") as f:
+            if filename.endswith('.json'):
+                ret=json.load(f, object_hook=decimal_decoder)
+            elif filename.endswith('.yaml'):
+                ret = yaml.load(f,Loader=yaml.FullLoader)
+            else:
+                ret = f.read()
+    else:
+
+        if filename.endswith('.json'):
+            ret = load_json(filename)
+        elif filename.endswith('.yaml'):
+            ret = load_yaml(filename)
+        else:
+            ret = load_file(filename)
+
+    check.not_none(ret)
+
+    return ret
 

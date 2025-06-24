@@ -1,0 +1,8 @@
+default:
+    OS: null
+    USE_READLINE: false
+    STARTUP_SCRIPT_DELAY: 0
+linux:
+    OS: linux
+    USE_READLINE: true
+    STARTUP_SCRIPT_DELAY: 0.25

@@ -2,12 +2,10 @@ import os
 import site
 import sys
 import time
-import readline
 import importlib
 import traceback
 import dynashell.check as check
 import dynashell.utils as utils
-import dynashell.const as const
 from   dynashell.utils import choose,extend
 
 class Shell:
@@ -65,35 +63,47 @@ class Shell:
         self.config = self.load(config_file)
         self._export['config'] = self.config
 
-        # Initialize default setting
-
-        for key,val in const.setting['default'].items():
-            self.setting[key]=val
-
-        # Initialize platform setting
-
-        for platform in const.setting.keys():
-            if sys.platform.startswith(platform):
-                 for key, val in const.setting[platform].items():
-                     self.setting[key]=val
-
-        # Process config.setting section
-
-        hsh = self.config.get('setting',{})
-        for key,val in hsh.items():
-            if not key in self.setting.keys(): raise Exception(f"Unknown setting key {key} encountered")
-            self.setting[key]=val
-
-        # Create setting object
-
-        self.setting = Setting(self.setting)
-        self._export['setting'] = self.setting
-
         # Process config.path section
 
         hsh = self.config.get('path',{})
         for key in hsh.keys():
             self._path[key]=utils.slashed_path(self.path(hsh.get(key)))
+
+        # Load dynashell settings
+
+        res = utils.load_resource("dynashell", "setting.yaml")
+
+        platform = 'default'
+        for key in res.keys():
+            if sys.platform.startswith(key):
+                platform=key
+                break
+
+        setting = res.get('default',{})
+        setting.update(res.get(platform,{}))
+
+        # Process config.setting section
+
+        for itm in self.config.get('setting',[]):
+            if '=' in itm:
+                key,val = itm.split('=')
+                setting[key]=val
+            else:
+                res = utils.load_resource(None,self.path(itm))
+                if res.get('default'):
+                    setting.update(res.get('default',{}))
+                    setting.update(res.get(platform,{}))
+                else:
+                    setting.update(res)
+
+        # Create setting object
+
+        self.setting = Setting(setting)
+        self._export['setting'] = self.setting
+
+        # Handle USE_READLINE
+
+        if self.setting.USE_READLINE: import readline
 
         # Determine temp path (for dynascript storage)
 
@@ -523,6 +533,10 @@ class Setting:
         data['__init__']=True
         self._data = data
         data.pop('__init__')
+
+    def __str__(self):
+
+        return f"{self._data}"
 
     def __getattr__(self,key):
 
