@@ -3,7 +3,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "dynashell"
-version = "0.0.5"
+version = "0.0.6"
 authors = [
     { name="Ralph Boots" }
 ]
@@ -19,5 +19,9 @@ license-files = ["LICEN[CS]E*"]
 dependencies = [
     'PyYAML'
 ]
+[tool.setuptools.packages.find]
+where = ["src"]
+[tool.setuptools.package-data]
+dynashell = ["*.json","*.yaml"]
 [project.urls]
 Homepage = "https://github.com/rtboots/dynashell"
