@@ -12,7 +12,7 @@ import dynashell.check as check
 def choose(by,*lst,**hsh):
 
     if (len(hsh)==0)&(len(lst)==1):
-        return by if by else lst[0]
+        return by if by is not None else lst[0]
 
     raise Exception("Unresolved choice")
 
