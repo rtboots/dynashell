@@ -369,12 +369,12 @@ class Dictionary:
         #        it is necessary to remove all object properties and put the
         #        data hash outside the object (linked via the hash() code)
 
-        Dictionary.Data(hash(self), data)
+        Dictionary.New(hash(self), data)
 
     def __getattr__(self,key):
 
-        if self.data().get(key):
-            val = self.data().get(key)
+        if self.dict().get(key):
+            val = self.dict().get(key)
             #print(f"Getting dictionary key {key} value {val}")
             return Dictionary(val) if isinstance(val,dict) else val
         else:
@@ -384,15 +384,15 @@ class Dictionary:
 
         if not key in dir(self):
             #print(f"Setting dictionary key {key} to value {val}")
-            self.data()[key]=val
+            self.dict()[key]=val
         else:
             tmp = f"Cannot overwrite Dictionary method {key}"
             raise Exception(tmp)
 
     def __getitem__(self,key):
 
-        if self.data().get(key):
-            val = self.data().get(key)
+        if self.dict().get(key):
+            val = self.dict().get(key)
             #print(f"Getting dictionary key {key} value {val}")
             return Dictionary(val) if isinstance(val,dict) else val
         else:
@@ -406,34 +406,15 @@ class Dictionary:
 
         return self.dump('json')
 
-    # ----- Partial dict API
+    # ----- Methods (cannot be field names in underlying dict!!!)
 
-    def clear(self):
-        self.data().clear()
+    def dict(self,data=None):
 
-    def copy(self):
-        return Dictionary(self.data().copy())
-
-    def keys(self):
-        return self.data().keys()
-
-    def items(self):
-        return self.data().items()
-
-    def update(self,hsh):
-
-        for key,val in hsh.items():
-            self.set(key,val)
-
-    # -----
-
-    def data(self,data=None):
-
-        return Dictionary.Data(hash(self),data)
+        return Dictionary.New(hash(self),data)
 
     def set(self,key,val):
 
-        node = self.data()
+        node = self.dict()
         path = key.split(".")
         leaf = path.pop()
 
@@ -447,7 +428,7 @@ class Dictionary:
 
     def get(self,key,default=None):
 
-        node = self.data()
+        node = self.dict()
         path = key.split(".")
         leaf = path.pop()
 
@@ -467,16 +448,37 @@ class Dictionary:
 
         return self.get(key) is not None
 
+    def clear(self):
+
+        self.dict().clear()
+
+    def copy(self):
+
+        return Dictionary(self.dict().copy())
+
+    def keys(self):
+
+        return self.dict().keys()
+
+    def items(self):
+
+        return self.dict().items()
+
+    def update(self,hsh):
+
+        for key,val in hsh.items():
+            self.set(key,val)
+
     def load(self,file):
 
         check.not_none(file)
         check.ends_with(file,'.yaml','.json')
 
         if file.endswith('yaml'):
-            self.data(utils.load_yaml(file))
+            self.dict(utils.load_yaml(file))
 
         if file.endswith('json'):
-            self.data(utils.load_json(file))
+            self.dict(utils.load_json(file))
 
         return self
 
@@ -486,10 +488,10 @@ class Dictionary:
         check.ends_with(file,'.yaml','.json')
 
         if file.endswith('yaml'):
-             utils.save_yaml(file,self.data())
+             utils.save_yaml(file,self.dict())
 
         if file.endswith('json'):
-            utils.save_json(file, self.data())
+            utils.save_json(file, self.dict())
 
         return self
 
@@ -501,8 +503,8 @@ class Dictionary:
             else:
                 typ = 'json'
 
-        if typ=='yaml': return utils.dump_yaml(self.data())
-        if typ=='json': return utils.dump_json(self.data())
+        if typ=='yaml': return utils.dump_yaml(self.dict())
+        if typ=='json': return utils.dump_json(self.dict())
 
         check.failure(f"Unknown dump type '{typ}'")
 
@@ -514,7 +516,7 @@ class Dictionary:
         return Dictionary().load(file)
 
     @staticmethod
-    def Data(code,data=None):
+    def New(code, data=None):
 
         if Dictionary.Instance.get(code) is None:
             Dictionary.Instance[code] = {}
