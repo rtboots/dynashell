@@ -350,12 +350,18 @@ class Command:
 
         return False
 
-    def pop(self):
+    def pop(self,wrd=None):
+
+        tmp = None
 
         if len(self.data):
-            return self.data.pop(0)
-        else:
-            return None
+            tmp = self.data.pop(0)
+
+        if wrd is not None:
+            if wrd!=tmp:
+                check.failure(f"Command expected {wrd} but found {tmp}")
+
+        return tmp
 
     def done(self):
 

@@ -34,6 +34,7 @@ def load_file(file):
 
 def save_file(file,data):
 
+    create_path(os.path.dirname(file))
     with open(file,'w') as f:
         f.write(data)
         f.close()
@@ -47,6 +48,7 @@ def load_yaml(file):
 
 def save_yaml(file,data):
 
+    create_path(os.path.dirname(file))
     with open(file,'w') as f:
         yaml.dump(data,f,default_flow_style=False)
 
@@ -63,6 +65,7 @@ def load_json(file):
 
 def save_json(file,data,indent=True):
 
+    create_path(os.path.dirname(file))
     with open(file,'w') as f:
         if indent:
             json.dump(data,f,indent=4,cls=decimal_encoder)
