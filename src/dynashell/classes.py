@@ -39,6 +39,7 @@ class Shell:
         self._module    = []
         self._script    = []
         self._counter   = 100
+        self._handler   = {}
         self._variable  = Dictionary()
         self._export    = {
             'startup'   : self.startup
@@ -144,11 +145,28 @@ class Shell:
         self.reader = Reader(self)
         self.reader.start()
 
+    def handler(self,wrd1,wrd2,fnc):
+
+        if self._handler.get(wrd1) is None:
+            self._handler[wrd1] = {}
+
+        self._handler[wrd1][wrd2] = fnc
+
     def execute(self,cmnd):
 
         try:
             self.command = cmnd
             self._export['command'] = cmnd
+
+            if self._handler.get(cmnd.name):
+                wrd1 = cmnd.name
+                for wrd2 in self._handler[wrd1].keys():
+
+                    if cmnd.peek(wrd2):
+
+                        self._handler[wrd1][wrd2](self,cmnd,cmnd.pop())
+                        return
+
             label = cmnd.name
             body  = self.source(cmnd.name)
             file  = self.script(body,label)
@@ -359,9 +377,16 @@ class Command:
 
         if wrd is not None:
             if wrd!=tmp:
-                check.failure(f"Command expected {wrd} but found {tmp}")
+                check.failure(f"Command expected '{wrd}' but found '{tmp}'")
 
         return tmp
+
+    def peek(self,wrd):
+
+        if len(self.data):
+            return self.data[0]==wrd
+        else:
+            return False
 
     def done(self):
 
