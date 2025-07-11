@@ -145,12 +145,26 @@ class Shell:
         self.reader = Reader(self)
         self.reader.start()
 
-    def handler(self,wrd1,wrd2,fnc):
+    def handler(self,*args): # wrd1,wrd2,fnc
 
-        if self._handler.get(wrd1) is None:
-            self._handler[wrd1] = {}
+        if len(args)==1:
 
-        self._handler[wrd1][wrd2] = fnc
+            for wrd1,hsh in args[0].items():
+                for wrd2,fnc in hsh.items():
+                    self.handler(wrd1,wrd2,fnc)
+
+            return
+
+        if len(args)==3:
+
+            (wrd1,wrd2,fnc)=args
+
+            if self._handler.get(wrd1) is None:
+                self._handler[wrd1] = {}
+
+            self._handler[wrd1][wrd2] = fnc
+
+            return
 
     def execute(self,cmnd):
 
