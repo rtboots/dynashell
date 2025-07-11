@@ -196,6 +196,7 @@ class Shell:
                 if star:
 
                     star(verb,'*',cmnd)
+                    return
 
             # execution by script
 
