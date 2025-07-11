@@ -149,42 +149,61 @@ class Shell:
 
         if len(args)==1:
 
-            for wrd1,hsh in args[0].items():
-                for wrd2,fnc in hsh.items():
-                    self.handler(wrd1,wrd2,fnc)
+            for verb,hsh in args[0].items():
+                for noun,fnc in hsh.items():
+                    self.handler(verb,noun,fnc)
 
             return
 
         if len(args)==3:
 
-            (wrd1,wrd2,fnc)=args
+            (verb,noun,fnc)=args
 
-            if self._handler.get(wrd1) is None:
-                self._handler[wrd1] = {}
+            if self._handler.get(verb) is None:
+                self._handler[verb] = {}
 
-            self._handler[wrd1][wrd2] = fnc
+            self._handler[verb][noun] = fnc
 
             return
 
     def execute(self,cmnd):
 
         try:
+
             self.command = cmnd
             self._export['command'] = cmnd
 
+            # execution by handler
+
             if self._handler.get(cmnd.name):
-                wrd1 = cmnd.name
-                for wrd2 in self._handler[wrd1].keys():
 
-                    if cmnd.peek(wrd2):
+                verb = cmnd.name
 
-                        self._handler[wrd1][wrd2](self,cmnd,cmnd.pop())
+                star = None
+
+                for noun in self._handler[verb].keys():
+
+                    if cmnd.peek(noun):
+
+                        cmnd.pop()
+                        self._handler[verb][noun](verb,noun,cmnd)
                         return
+
+                    if noun == '*':
+
+                        star = self._handler[verb][noun]
+
+                if star:
+
+                    star(verb,'*',cmnd)
+
+            # execution by script
 
             label = cmnd.name
             body  = self.source(cmnd.name)
             file  = self.script(body,label)
             importlib.import_module(file)
+
         except:
             traceback.print_exc()
 
