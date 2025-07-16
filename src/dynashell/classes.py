@@ -186,7 +186,7 @@ class Shell:
                     if cmnd.peek(noun):
 
                         cmnd.pop()
-                        self._handler[verb][noun](verb,noun,cmnd)
+                        check.is_true(self._handler[verb][noun](verb,noun,cmnd),f"{verb} {noun} has not been handled")
                         return
 
                     if noun == '*':
@@ -195,7 +195,7 @@ class Shell:
 
                 if star:
 
-                    star(verb,'*',cmnd)
+                    check.is_true(star(verb,'*',cmnd), f"{verb} * has not been handled")
                     return
 
             # execution by script
@@ -787,6 +787,8 @@ class Tokenizer:
 
     @staticmethod
     def Value(txt):
+
+        if not isinstance(txt,str): return True,txt
 
         txt = txt.strip()
 
