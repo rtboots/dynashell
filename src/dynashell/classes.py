@@ -61,7 +61,7 @@ class Shell:
 
         # Load shell configuration
 
-        self.config = self.load(config_file)
+        self.config = self.load(config_file,True)
         self._export['config'] = self.config
 
         # Process config.path section
@@ -271,14 +271,21 @@ class Shell:
 
         return val
 
-    def load(self,file):
+    def load(self,file,as_dictionary=False):
 
         file = self.path(file)
 
         if file.endswith('yaml'):
-            return Dictionary.Load(file)
+            if as_dictionary:
+                return Dictionary.Load(file)
+            else:
+                return utils.load_yaml(file)
+
         if file.endswith('json'):
-            return Dictionary.Load(file)
+            if as_dictionary:
+                return Dictionary.Load(file)
+            else:
+                return utils.load_json(file)
 
         return utils.load_file(file)
 

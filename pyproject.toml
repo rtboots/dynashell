@@ -3,7 +3,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 [project]
 name = "dynashell"
-version = "0.1.4"
+version = "0.1.5"
 authors = [
     { name="Ralph Boots" }
 ]
