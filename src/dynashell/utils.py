@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 import types
 import dynashell.check as check
+from types import ModuleType
+import inspect as inspect
 
 def choose(by,*lst,**hsh):
 
@@ -89,6 +91,7 @@ def file_exists(file):
     return obj.exists() and obj.is_file()
 
 def path_exists(file):
+
     obj = Path(file)
     return obj.exists() and obj.is_dir()
 
@@ -148,18 +151,32 @@ def pretty_print_dict(d,indent=0):
         else:
             print(value)
 
-def extend(obj,methods):
-    if methods is None: return
-    for mth in methods.keys():
-        setattr(obj,mth,types.MethodType(methods[mth],obj))
+def extend(obj,ext):
+
+    if ext is None: return
+
+    if type(ext)==dict:
+
+        for mth in ext.keys():
+            setattr(obj,mth,types.MethodType(ext[mth],obj))
+
+    if type(ext)==ModuleType:
+
+        hsh = {}
+        for mth,fnc in inspect.getmembers(ext,inspect.isfunction):
+            if fnc.__module__ == ext.__name__:
+                hsh[mth]=fnc
+        extend(obj,hsh)
 
 class decimal_encoder(json.JSONEncoder):
+
     def default(self,obj):
         if isinstance(obj,Decimal):
             return f"@D:{obj}"
         return super().default(obj)
 
 def decimal_decoder(obj):
+
     for key,value in obj.items():
         if isinstance(value,str):
             if value.startswith("@D:"): obj[key] = Decimal(value[3:])
@@ -175,7 +192,7 @@ def load_resource(package,filename):
 
         with inp_file.open("rt") as f:
             if filename.endswith('.json'):
-                ret=json.load(f, object_hook=decimal_decoder)
+                ret = json.load(f,object_hook=decimal_decoder)
             elif filename.endswith('.yaml'):
                 ret = yaml.load(f,Loader=yaml.FullLoader)
             else:
@@ -192,4 +209,3 @@ def load_resource(package,filename):
     check.not_none(ret)
 
     return ret
-

@@ -6,7 +6,7 @@ import importlib
 import traceback
 import dynashell.check as check
 import dynashell.utils as utils
-from   dynashell.utils import choose,extend
+from   dynashell.utils import extend
 
 class Shell:
 
@@ -52,7 +52,7 @@ class Shell:
 
         # Get configuration file
 
-        config_file = choose(self.startup.flag.config,'./config.yaml')
+        config_file = self.startup.flag.get('config','./config.yaml')
 
         # Set "shell:" path
 
@@ -200,9 +200,9 @@ class Shell:
 
             # execution by script
 
-            label = cmnd.name
-            body  = self.source(cmnd.name)
-            file  = self.script(body,label)
+            label  = cmnd.name
+            source = self.source(cmnd.name)
+            file   = self.script(source,label)
             importlib.import_module(file)
 
         except:
@@ -212,13 +212,28 @@ class Shell:
 
         for pth in self._script:
             if utils.file_exists(f"{pth}/{name}"):
-                return utils.load_file(f"{pth}/{name}")
+
+                src = ""
+                for line in utils.load_file(f"{pth}/{name}").splitlines():
+
+                    # Macro line
+                    if line.startswith("@"):
+
+                        cmnd = Command(line[1:])
+                        src += self.__class__.__dict__[f"_{cmnd.name}_"](self,cmnd) +"\n"
+
+                    # Normal line
+                    else:
+
+                        src += line+"\n"
+
+                return src
 
         check.failure(f"Could not find script source for '{name}'")
 
         return None
 
-    def script(self,body,label):
+    def script(self, source, label):
 
         tmp = ""
 
@@ -248,7 +263,7 @@ class Shell:
         # Add script source
 
         tmp += f"# Source '{label}'\n\n"
-        tmp += body
+        tmp += source
 
         # Save script to shell's temp directory
 
@@ -334,13 +349,19 @@ class Shell:
 
         return self._variable.has(key)
 
+    # macro handlers
+
+    def _include_(self,cmnd):
+
+        return self.source(cmnd.pop())
+
 class Reader:
 
     def __init__(self,shell):
 
         self._shell   = shell
         self._running = True
-        self._stdin   = choose(shell.startup.flag.stdin,True)
+        self._stdin   = shell.startup.flag.get('stdin',True)
         self._lines   = []
 
     def read_line(self):
@@ -394,8 +415,8 @@ class Command:
         self.name  = cmd["name"]
         self.text  = cmd["text"]
         self.data  = cmd["data"]
-        self.value = Dictionary(cmd["values"])
-        self.flag  = Dictionary(cmd["flags"])
+        self.value = Dictionary(cmd["value"])
+        self.flag  = Dictionary(cmd["flag"])
 
     def see(self,chk):
 
@@ -435,170 +456,244 @@ class Command:
 
 class Dictionary:
 
-    def __init__(self,data=None):
+    def __init__(self, hsh=None, lock=False):
 
-        # NOTE : In order to be able to get AND set dictionary entries
-        #        it is necessary to remove all object properties and put the
-        #        data hash outside the object (linked via the hash() code)
+        if hsh is None: hsh = {}
 
-        Dictionary.New(hash(self), data)
+        self._data = hsh
+        self._lock = lock
 
-    def __getattr__(self,key):
+    def __getattr__(self, key):
 
-        if self.dict().get(key):
-            val = self.dict().get(key)
-            #print(f"Getting dictionary key {key} value {val}")
-            return Dictionary(val) if isinstance(val,dict) else val
+        node, leaf = self.find(key)
+
+        if node:
+            return self._cast(node.get(leaf))
         else:
             return None
 
-    def __setattr__(self,key,val):
+    def __delattr__(self, item):
 
-        if not key in dir(self):
-            #print(f"Setting dictionary key {key} to value {val}")
-            self.dict()[key]=val
-        else:
-            tmp = f"Cannot overwrite Dictionary method {key}"
-            raise Exception(tmp)
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot del {item}")
 
-    def __getitem__(self,key):
-
-        if self.dict().get(key):
-            val = self.dict().get(key)
-            #print(f"Getting dictionary key {key} value {val}")
-            return Dictionary(val) if isinstance(val,dict) else val
-        else:
-            return None
-
-    def __del__(self):
-
-        del Dictionary.Instance[hash(self)]
+        self._data.pop(item)
 
     def __str__(self):
 
-        return self.dump('json')
+        return self.string('json')
 
-    # ----- Methods (cannot be field names in underlying dict!!!)
+    def lock(self):
 
-    def dict(self,data=None):
+        self._lock = True
 
-        return Dictionary.New(hash(self),data)
+    def data(self):
 
-    def set(self,key,val):
+        return self._data
 
-        node = self.dict()
+    def find(self, key, create=False):
+
+        node = self._data
         path = key.split(".")
         leaf = path.pop()
 
-        for step in path:
+        if create:
 
-            if node.get(step) is None: node[step]={}
-            node = node.get(step)
-            if not isinstance(node,dict): check.failure("Expected dict node")
+            for step in path:
 
-        node[leaf]=val
+                if step in node:
+                    node = node.get(step)
+                else:
+                    node[step] = {}
+                    node = node.get(step)
 
-    def get(self,key,default=None):
+        else:
 
-        node = self.dict()
-        path = key.split(".")
-        leaf = path.pop()
+            for step in path:
 
-        for step in path:
+                if step in node:
+                    node = node.get(step)
+                    if node is None: return None, leaf
+                else:
+                    return None, leaf
 
-            if step in node:
-                node = node.get(step)
-                if node is None: return default
-            else:
-                return default
+        return node, leaf
 
-        leaf = choose(node.get(leaf),default)
+    def has(self, key):
 
-        return Dictionary(leaf) if isinstance(leaf,dict) else leaf
+        node, leaf = self.find(key)
 
-    def has(self,key):
+        if node:
+            return leaf in node
+        else:
+            return False
 
-        return self.get(key) is not None
+    def get(self, key, default=None):
+
+        node, leaf = self.find(key)
+
+        if node:
+            return self._cast(node.get(leaf, default))
+        else:
+            return self._cast(default)
+
+    def set(self, key, val):
+
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot set {key}")
+
+        node, leaf = self.find(key)
+
+        if node:
+            node[leaf] = val
+        else:
+            raise Exception(f"Path {key} not added yet")
+
+    def add(self, key, val):
+
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot add {key}")
+
+        node, leaf = self.find(key, True)
+
+        if leaf in node:
+            raise Exception(f"Path {key} already added")
+
+        node[leaf] = val
+
+        return self._cast(val)
+
+    # def del(self,key) : is handled by pop()
+
+    def string(self, typ):
+
+        if typ == 'yaml':
+            return utils.dump_yaml(self._data)
+
+        return utils.dump_json(self._data)
+
+    # Dict API
 
     def clear(self):
 
-        self.dict().clear()
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot clear")
+
+        self._data.clear()
 
     def copy(self):
 
-        return Dictionary(self.dict().copy())
+        return Dictionary(self._data.copy())
 
-    def keys(self):
+    def items(self, key=None):
 
-        return self.dict().keys()
+        if key: return self.get(key).items()
 
-    def items(self):
+        ret = list()
+        for name, item in self._data.items():
+            ret.append((name, self._cast(item)))
+        return ret
 
-        return self.dict().items()
+    def keys(self, key=None):
 
-    def update(self,hsh):
+        if key: return self.get(key).keys()
 
-        for key,val in hsh.items():
-            self.set(key,val)
+        return self._data.keys()
 
-    def load(self,file):
+    def pop(self, key, default=None):
+
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot pop {key}")
+
+        node, leaf = self.find(key)
+
+        if node:
+            return node.pop(leaf, default)
+        else:
+            raise Exception(f"Path {key} not defined")
+
+    def popitem(self, key):
+
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot popitem {key}")
+
+        node, leaf = self.find(key)
+
+        if node:
+            node = node.get(leaf)
+            if not isinstance(node, dict):
+                raise Exception(f"Path {key} not mapped to dict")
+            return node.popitem()
+        else:
+            raise Exception(f"Path {key} not defined")
+
+    def setdefault(self, key, default=None):
+
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot setdefault {key}")
+
+        node, leaf = self.find(key)
+
+        if node:
+            if not isinstance(node, dict):
+                raise Exception(f"Path {key} not mapped to dict")
+            return node.setdefault(leaf, default)
+        else:
+            raise Exception(f"Path {key} not defined")
+
+    def update(self, data):
+
+        if self._lock:
+            raise Exception(f"Dictionary is locked. Cannot update")
+
+        self._data.update(data)
+
+    def values(self, key=None):
+
+        if key: return self.get(key).values()
+
+        ret = list()
+        for item in self._data.values():
+            ret.append(self._cast(item))
+        return ret
+
+    def load(self, file):
 
         check.not_none(file)
-        check.ends_with(file,'.yaml','.json')
+        check.ends_with(file, '.yaml', '.json')
 
         if file.endswith('yaml'):
-            self.dict(utils.load_yaml(file))
+            self._data = utils.load_yaml(file)
 
         if file.endswith('json'):
-            self.dict(utils.load_json(file))
+            self._data = utils.load_json(file)
 
         return self
 
-    def save(self,file):
+    def save(self, file):
 
         check.not_none(file)
-        check.ends_with(file,'.yaml','.json')
+        check.ends_with(file, '.yaml', '.json')
 
         if file.endswith('yaml'):
-             utils.save_yaml(file,self.dict())
+            utils.save_yaml(file, self._data)
 
         if file.endswith('json'):
-            utils.save_json(file, self.dict())
+            utils.save_json(file, self._data)
 
         return self
 
-    def dump(self,typ=None):
+    def _cast(self,obj):
 
-        if typ is None:
-            if self._file is not None:
-                typ = 'yaml' if self._file.endswith('yaml') else 'json'
-            else:
-                typ = 'json'
-
-        if typ=='yaml': return utils.dump_yaml(self.dict())
-        if typ=='json': return utils.dump_json(self.dict())
-
-        check.failure(f"Unknown dump type '{typ}'")
-
-        return None
+        if isinstance(obj, dict):
+            return Dictionary(obj,self._lock)
+        else:
+            return obj
 
     @staticmethod
     def Load(file):
 
         return Dictionary().load(file)
-
-    @staticmethod
-    def New(code, data=None):
-
-        if Dictionary.Instance.get(code) is None:
-            Dictionary.Instance[code] = {}
-
-        if data is not None:
-            Dictionary.Instance[code] = data
-
-        return Dictionary.Instance[code]
-
-    Instance = {}
 
 class Setting:
 
@@ -767,11 +862,11 @@ class Tokenizer:
     def Parse(line):
 
         cmd = {
-            'name': None,
-            'text': None,
-            'data': [],  # data
-            'values': {},  # values
-            'flags': {}  # flags
+            'name'  : None,
+            'text'  : None,
+            'data'  : [],
+            'value' : {},
+            'flag'  : {}
         }
 
         line = line.strip()
@@ -782,9 +877,9 @@ class Tokenizer:
             if tok.typ == Token.DATA:
                 cmd['data'].append(tok.val)
             if tok.typ == Token.VALUE:
-                _, cmd['values'][tok.key] = Tokenizer.Value(tok.val)
+                _, cmd['value'][tok.key] = Tokenizer.Value(tok.val)
             if tok.typ == Token.FLAG:
-                _, cmd['flags'][tok.key] = Tokenizer.Value(tok.val)
+                _, cmd['flag'][tok.key] = Tokenizer.Value(tok.val)
 
         name = cmd['data'].pop(0)
         cmd['name'] = name
