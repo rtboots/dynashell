@@ -4,6 +4,8 @@ import sys
 import time
 import importlib
 import traceback
+import atexit
+from textwrap import dedent
 import dynashell.check as check
 import dynashell.utils as utils
 from   dynashell.utils import extend
@@ -37,13 +39,12 @@ class Shell:
 
         self._path      = {}
         self._module    = []
-        self._script    = []
+        self._source    = []
         self._counter   = 100
         self._handler   = {}
+        self._declare   = Dictionary()
+        self._declare.startup = self.startup
         self._variable  = Dictionary()
-        self._export    = {
-            'startup'   : self.startup
-        }
 
         # Set "system:" path
 
@@ -62,7 +63,7 @@ class Shell:
         # Load shell configuration
 
         self.config = self.load(config_file,True)
-        self._export['config'] = self.config
+        self._declare.config=self.config
 
         # Process config.path section
 
@@ -99,8 +100,8 @@ class Shell:
 
         # Create setting object
 
-        self.setting = Setting(setting)
-        self._export['setting'] = self.setting
+        self.setting = Dictionary(setting)
+        self._declare.setting = self.setting
 
         # Handle USE_READLINE
 
@@ -128,24 +129,64 @@ class Shell:
 
         # Process config.script section
 
-        lst = self.config.get('script',[])
+        lst = self.config.get('source',[])
         for itm in lst:
             pth = utils.slashed_path(self.path(itm))
-            self._script.append(pth)
+            self._source.append(pth)
 
-        # Execute start scripts
+        # Execute STARTUP scripts
+        # NOTE : Use config.source so we get ':' paths instead of absolute resolved ones
 
-        lst = self.config.get('start',[])
+        for pth in self.config.get('source',[]):
+            time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
+            self.dynaload(self.source(f"{pth}/STARTUP",True))
+
+        # Execute startup scripts
+
+        lst = self.config.get('startup',[])
         for itm in lst:
-            time.sleep(self.setting.STARTUP_SCRIPT_DELAY)
+            time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
             self.execute(Command(itm))
+
+        # Define atexit handler to deal with ctrl-c exit
+
+        atexit.register(lambda : Shell.Instance.shutdown() )
 
         # Start command reader
 
+        self.config.running=True
         self.reader = Reader(self)
         self.reader.start()
 
+        # Execute shutdown scripts
+
+        self.shutdown()
+
+    def shutdown(self):
+
+        if self.config.running:
+
+            # Execute shutdown scripts
+
+            lst = self.config.get('shutdown',[])
+            for itm in lst:
+                time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
+                self.execute(Command(itm))
+
+            # Execute SHUTDOWN scripts
+            # NOTE : Use config.source so we get ':' paths instead of absolute resolved ones
+
+            for pth in self.config.get('source', []):
+                time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
+                self.dynaload(self.source(f"{pth}/SHUTDOWN", True))
+
+            # Only run shutdown() once.
+
+            self.config.running=False
+
     def handler(self,*args): # wrd1,wrd2,fnc
+
+        # handler({...})
 
         if len(args)==1:
 
@@ -154,6 +195,8 @@ class Shell:
                     self.handler(verb,noun,fnc)
 
             return
+
+        # handler(verb,noun,fnc)
 
         if len(args)==3:
 
@@ -166,12 +209,32 @@ class Shell:
 
             return
 
+    def macro(self,*args):
+
+        # macro({...})
+
+        if len(args)==1:
+            for typ,fnc in args[0].items(): self.macro(typ,fnc)
+
+        # macro(key,fnc)
+
+        if len(args)==2:
+            (typ,fnc)=args
+
+            check.is_false(hasattr(self,f"macro_{typ}"), f"Macro handler {typ} already defined")
+            extend(self, {f"macro_{typ}": fnc})
+
+    def format(self,typ,fnc):
+
+        check.is_false(hasattr(self, f"format_{typ}"), f"Format handler {typ} already defined")
+        extend(self, {f"format_{typ}": fnc})
+
     def execute(self,cmnd):
 
         try:
 
             self.command = cmnd
-            self._export['command'] = cmnd
+            self._declare.command = cmnd
 
             # execution by handler
 
@@ -200,38 +263,121 @@ class Shell:
 
             # execution by script
 
-            label  = cmnd.name
             source = self.source(cmnd.name)
-            file   = self.script(source,label)
-            importlib.import_module(file)
+            label  = cmnd.name
+
+            self.dynaload(source,label)
 
         except:
             traceback.print_exc()
 
-    def source(self,name):
+    def dynaload(self,source,label='Anonymous'):
 
-        for pth in self._script:
-            if utils.file_exists(f"{pth}/{name}"):
+        if source:
 
-                src = ""
-                for line in utils.load_file(f"{pth}/{name}").splitlines():
+            file   = self.script(source,label)
+            mod    = importlib.import_module(file)
 
-                    # Macro line
-                    if line.startswith("@"):
+            # call onImport (optional)
 
-                        cmnd = Command(line[1:])
-                        src += self.__class__.__dict__[f"_{cmnd.name}_"](self,cmnd) +"\n"
+            if hasattr(mod, "onImport"): getattr(mod,"onImport")(self,mod)
 
-                    # Normal line
-                    else:
+    def source(self,name,silent=False):
 
-                        src += line+"\n"
+        # explicit source
 
-                return src
+        if ":" in name:
 
-        check.failure(f"Could not find script source for '{name}'")
+            name = self.path(name)
+            if utils.file_exists(name):
+                return self.parse(utils.load_file(name))
+
+        # implicit source
+
+        else:
+
+            for pth in self._source:
+                if utils.file_exists(f"{pth}/{name}"):
+                    return self.parse(utils.load_file(f"{pth}/{name}"))
+
+        # Source not found
+
+        if not silent: check.failure(f"Could not find source for '{name}'")
 
         return None
+
+    def parse(self,src):
+
+        ret = ""
+
+        # Get rid of leading/trailing spaces
+
+        src = src.strip()
+
+        # Formatted ?
+
+        if src.startswith('#!'):
+
+            src = self.parse_format(src)
+
+        for line in src.splitlines():
+
+            # Macro line
+
+            if line.lstrip().startswith("@"):
+
+                ret += self.parse_macro(line)
+
+            # Normal line
+
+            else:
+
+                ret += line + "\n"
+
+        return ret
+
+    def parse_format(self,src):
+
+        src += '\n'
+        (typ,src) = src.split('\n',1)
+        typ = typ[2:]
+
+        check.not_none(self.__dict__.get(f"format_{typ}"),f"Format handler {typ} not defined")
+        return self.__dict__[f"format_{typ}"](src)
+
+    def parse_macro(self,line):
+
+        ret  = ""
+        tail = line.lstrip()
+        head = line[:len(line) - len(tail)]
+
+        cmnd = Command(tail[1:])
+        body = None
+
+        # system macros
+
+        if self.__class__.__dict__.get(f"macro_{cmnd.name}"):
+            body = self.__class__.__dict__[f"macro_{cmnd.name}"](self, cmnd)
+            if body is None: body = ""
+            body = self.parse(dedent(body))
+
+        # shell macros
+
+        elif self.__dict__.get(f"macro_{cmnd.name}"):
+
+            body = self.__dict__[f"macro_{cmnd.name}"](cmnd)
+            if body is None: body = ""
+            body = self.parse(dedent(body))
+
+        # Body is None means not handled
+
+        check.not_none(body, f"Macro {cmnd.name} not defined")
+
+        # Return indented body
+
+        for part in body.splitlines(): ret += head + part + "\n"
+
+        return ret
 
     def script(self, source, label):
 
@@ -251,13 +397,13 @@ class Shell:
         tmp += "from dynashell.main import instance\n"
         tmp += "shell = instance()\n\n"
 
-        # Add exported variables
+        # Add declared variables
 
-        lst = self._export.keys()
+        lst = self._declare.keys()
         if len(lst):
-            tmp += "# Exported variables\n\n"
+            tmp += "# Declared Variables\n\n"
             for key in lst:
-                tmp += f"{key} = shell.export('{key}')\n"
+                tmp += f"{key} = shell._declare.{key}\n"
             tmp += "\n"
 
         # Add script source
@@ -286,21 +432,21 @@ class Shell:
 
         return val
 
-    def load(self,file,as_dictionary=False):
+    def load(self,file,as_structure=False):
 
         file = self.path(file)
 
         if file.endswith('yaml'):
-            if as_dictionary:
-                return Dictionary.Load(file)
-            else:
-                return utils.load_yaml(file)
+
+            ret = utils.load_yaml(file)
+            if as_structure: ret = Dictionary(ret)
+            return ret
 
         if file.endswith('json'):
-            if as_dictionary:
-                return Dictionary.Load(file)
-            else:
-                return utils.load_json(file)
+
+            ret = utils.load_json(file)
+            if as_structure: ret = Dictionary(ret)
+            return ret
 
         return utils.load_file(file)
 
@@ -315,23 +461,12 @@ class Shell:
         else:
             utils.save_file(file,data)
 
-    def export(self,*arg):
+    def declare(self,key,obj,renew=False):
 
-        if len(arg)==1:
+        if self._declare.has(key) & (not renew) :
+            raise Exception(f"Global variable {key} already declared, cannot be re-declared unless renew is True")
 
-            key = arg[0]
-            return self._export[key]
-
-        if len(arg)==2:
-
-            key,val = arg
-            if self._export.get(key):
-                raise Exception(f"Cannot re-declare {key}")
-
-            self._export[key]=arg[1]
-            return None
-
-        raise Exception("shell.export can only be called with 1 or 2 arguments")
+        self._declare.set(key,obj)
 
     def extend(self,methods):
 
@@ -349,9 +484,9 @@ class Shell:
 
         return self._variable.has(key)
 
-    # macro handlers
+    # system macros
 
-    def _include_(self,cmnd):
+    def macro_include(self,cmnd):
 
         return self.source(cmnd.pop())
 
@@ -408,15 +543,27 @@ class Reader:
 
 class Command:
 
-    def __init__(self,line):
+    def __init__(self,line,data=None,value=None,flag=None):
 
         cmd = Tokenizer.Parse(line)
 
         self.name  = cmd["name"]
         self.text  = cmd["text"]
+
         self.data  = cmd["data"]
-        self.value = Dictionary(cmd["value"])
-        self.flag  = Dictionary(cmd["flag"])
+        if data: self.data.extend(data)
+
+        self.value = cmd["value"]
+        if value: self.value.update(value)
+        self.value = Dictionary(self.value)
+
+        self.flag  = cmd["flag"]
+        if flag: self.flag.update(flag)
+        self.flag  = Dictionary(self.flag)
+
+    def __str__(self):
+
+        return f"<{self.name} data:{self.data} value:{self.value} flag:{self.flag}>"
 
     def see(self,chk):
 
@@ -430,16 +577,16 @@ class Command:
 
         return False
 
-    def pop(self,wrd=None):
+    def pop(self,expect=None):
 
         tmp = None
 
         if len(self.data):
             tmp = self.data.pop(0)
 
-        if wrd is not None:
-            if wrd!=tmp:
-                check.failure(f"Command expected '{wrd}' but found '{tmp}'")
+        if expect is not None:
+            if expect!=tmp:
+                check.failure(f"Command expected '{expect}' but found '{tmp}'")
 
         return tmp
 
@@ -450,279 +597,105 @@ class Command:
         else:
             return False
 
+    def shift(self,into):
+
+        tmp = None
+
+        if len(self.data):
+            tmp = self.data.pop(0)
+
+        self.value.set(into,tmp)
+
+        return tmp
+
     def done(self):
 
         return len(self.data)==0
 
 class Dictionary:
 
-    def __init__(self, hsh=None, lock=False):
+    Hash = {}
 
-        if hsh is None: hsh = {}
+    def __init__(self,data=None):
 
-        self._data = hsh
-        self._lock = lock
+        if data is None: data = {}
 
-    def __getattr__(self, key):
-
-        node, leaf = self.find(key)
-
-        if node:
-            return self._cast(node.get(leaf))
-        else:
-            return None
-
-    def __delattr__(self, item):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot del {item}")
-
-        self._data.pop(item)
-
-    def __str__(self):
-
-        return self.string('json')
-
-    def lock(self):
-
-        self._lock = True
+        Dictionary.Hash[f"{id(self)}"]=data
 
     def data(self):
 
-        return self._data
+        return Dictionary.Hash[f"{id(self)}"]
 
-    def find(self, key, create=False):
+    def set(self,key,value):
 
-        node = self._data
-        path = key.split(".")
-        leaf = path.pop()
+        self.data()[key]=value
 
-        if create:
+    def has(self,key):
 
-            for step in path:
+        return key in self.data().keys()
 
-                if step in node:
-                    node = node.get(step)
-                else:
-                    node[step] = {}
-                    node = node.get(step)
-
-        else:
-
-            for step in path:
-
-                if step in node:
-                    node = node.get(step)
-                    if node is None: return None, leaf
-                else:
-                    return None, leaf
-
-        return node, leaf
-
-    def has(self, key):
-
-        node, leaf = self.find(key)
-
-        if node:
-            return leaf in node
-        else:
-            return False
-
-    def get(self, key, default=None):
-
-        node, leaf = self.find(key)
-
-        if node:
-            return self._cast(node.get(leaf, default))
-        else:
-            return self._cast(default)
-
-    def set(self, key, val):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot set {key}")
-
-        node, leaf = self.find(key)
-
-        if node:
-            node[leaf] = val
-        else:
-            raise Exception(f"Path {key} not added yet")
-
-    def add(self, key, val):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot add {key}")
-
-        node, leaf = self.find(key, True)
-
-        if leaf in node:
-            raise Exception(f"Path {key} already added")
-
-        node[leaf] = val
-
-        return self._cast(val)
-
-    # def del(self,key) : is handled by pop()
-
-    def string(self, typ):
-
-        if typ == 'yaml':
-            return utils.dump_yaml(self._data)
-
-        return utils.dump_json(self._data)
-
-    # Dict API
+    # dict api
 
     def clear(self):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot clear")
-
-        self._data.clear()
+        self.data().clear()
 
     def copy(self):
+        return self.data().copy()
 
-        return Dictionary(self._data.copy())
+    def fromkeys(self,keys,value=None):
+        return self.data().fromkeys(keys,value)
 
-    def items(self, key=None):
+    def get(self,key,value=None):
+        return self.data().get(key,value)
 
-        if key: return self.get(key).items()
+    def items(self):
+        return self.data().items()
 
-        ret = list()
-        for name, item in self._data.items():
-            ret.append((name, self._cast(item)))
-        return ret
+    def keys(self):
+        return self.data().keys()
 
-    def keys(self, key=None):
+    def pop(self,key,defval):
+        return self.data().pop(key,defval)
 
-        if key: return self.get(key).keys()
+    def popitem(self):
+        return self.data().popitem()
 
-        return self._data.keys()
+    def setdefault(self,key,defval):
+        self.data().setdefault(key,defval)
 
-    def pop(self, key, default=None):
+    def update(self,hash):
+        self.data().update(hash)
 
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot pop {key}")
+    def values(self):
+        return self.data().keys()
 
-        node, leaf = self.find(key)
-
-        if node:
-            return node.pop(leaf, default)
-        else:
-            raise Exception(f"Path {key} not defined")
-
-    def popitem(self, key):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot popitem {key}")
-
-        node, leaf = self.find(key)
-
-        if node:
-            node = node.get(leaf)
-            if not isinstance(node, dict):
-                raise Exception(f"Path {key} not mapped to dict")
-            return node.popitem()
-        else:
-            raise Exception(f"Path {key} not defined")
-
-    def setdefault(self, key, default=None):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot setdefault {key}")
-
-        node, leaf = self.find(key)
-
-        if node:
-            if not isinstance(node, dict):
-                raise Exception(f"Path {key} not mapped to dict")
-            return node.setdefault(leaf, default)
-        else:
-            raise Exception(f"Path {key} not defined")
-
-    def update(self, data):
-
-        if self._lock:
-            raise Exception(f"Dictionary is locked. Cannot update")
-
-        self._data.update(data)
-
-    def values(self, key=None):
-
-        if key: return self.get(key).values()
-
-        ret = list()
-        for item in self._data.values():
-            ret.append(self._cast(item))
-        return ret
-
-    def load(self, file):
-
-        check.not_none(file)
-        check.ends_with(file, '.yaml', '.json')
-
-        if file.endswith('yaml'):
-            self._data = utils.load_yaml(file)
-
-        if file.endswith('json'):
-            self._data = utils.load_json(file)
-
-        return self
-
-    def save(self, file):
-
-        check.not_none(file)
-        check.ends_with(file, '.yaml', '.json')
-
-        if file.endswith('yaml'):
-            utils.save_yaml(file, self._data)
-
-        if file.endswith('json'):
-            utils.save_json(file, self._data)
-
-        return self
-
-    def _cast(self,obj):
-
-        if isinstance(obj, dict):
-            return Dictionary(obj,self._lock)
-        else:
-            return obj
-
-    @staticmethod
-    def Load(file):
-
-        return Dictionary().load(file)
-
-class Setting:
-
-    def __init__(self,data):
-
-        data['__init__']=True
-        self._data = data
-        data.pop('__init__')
+    #
 
     def __str__(self):
 
-        return f"{self._data}"
+        return f"{self.data()}"
 
     def __getattr__(self,key):
 
-        if not key in self._data.keys(): raise Exception(f"Unknown setting key {key} encountered")
-
-        return self._data.get(key)
+        if not self.has(key): raise Exception(f"Unknown setting key {key} encountered")
+        return self.cast(self.get(key))
 
     def __setattr__(self, key, value):
 
-        if value.__init__:
-             super().__setattr__(key,value)
+        self.data()[key]=value
+
+    def __getitem__(self, idx):
+        return self.get(idx)
+
+    def __setitem__(self, idx, val):
+        self.set(idx,val)
+
+    def cast(self,obj):
+
+        if isinstance(obj,dict):
+            return Dictionary(obj)
         else:
-            raise Exception("Setting is not allowed to be updated")
-
-    def __setitem__(self, key, value):
-
-        raise Exception("Setting is not allowed to be updated")
+            return obj
 
 class Token:
 
@@ -915,3 +888,4 @@ class Tokenizer:
             return True,txt[1:-1]
 
         return False,txt
+

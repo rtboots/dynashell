@@ -30,24 +30,34 @@ include: |
   import common.connect as connect
 
 # -----
-# Section : script
+# Section : source
 #
-# Define the directories that are searched for the script to execute (ordered from first searched to last)
+# Define the directories that are searched for the script sources to execute (ordered from first searched to last)
 # -----
 
-script:
+source:
   - shell:/script
   - common:/script
 
 # -----
-# Section : start
+# Section : startup
 #
 # List of scripts to be executes on Shell startup (ordered from first to last)
 # -----
 
-start:
+startup:
   - common_startup
   - session_startup
+
+# -----
+# Section : shutdown
+#
+# List of scripts to be executes on Shell shutdown (ordered from first to last)
+# -----
+
+shutdown:
+  - common_shutdown
+  - session_shutdown
 
 # -----
 # Section : <user defined>
