@@ -1,8 +1,9 @@
 default:
     OS: null
     USE_READLINE: false
-    SCRIPT_EXECUTION_DELAY: 0
+    LINK_DELAY: 0
+    LINK_DEBUG: false
 linux:
     OS: linux
     USE_READLINE: true
-    SCRIPT_EXECUTION_DELAY: 0.25
+    LINK_DELAY: 0.10

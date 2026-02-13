@@ -1,14 +1,13 @@
-import os
 import site
-import sys
 import time
 import importlib
 import traceback
 import atexit
-from textwrap import dedent
-import dynashell.check as check
-import dynashell.utils as utils
-from   dynashell.utils import extend
+from prompt_toolkit import PromptSession
+from prompt_toolkit.history import FileHistory
+
+from dynashell.utils import *
+import dynashell.feature as feature
 
 class Shell:
 
@@ -22,18 +21,16 @@ class Shell:
 
         # Set shell instance
 
-        check.none(Shell.Instance,"Only 1 instance of Shell allowed")
+        if not is_none(Shell.Instance): log_failure("Only 1 instance of Shell allowed")
         Shell.Instance = self
 
         # Public properties
 
-        self.startup    = Command(line)
+        self.cmdline    = Command(line)
         self.config     = None
         self.setting    = {}
         self.command    = None
         self.reader     = None
-        self.utils      = utils
-        self.check      = check
 
         # Private properties
 
@@ -41,39 +38,48 @@ class Shell:
         self._module    = []
         self._source    = []
         self._counter   = 100
-        self._handler   = {}
-        self._declare   = Dictionary()
-        self._declare.startup = self.startup
-        self._variable  = Dictionary()
+        self._variable  = {}
+        self._parser    = []
+        self._executor  = []
+
+        # Declare cmdline
+
+        self.set("cmdline",self.cmdline,declared=True,protect=True)
 
         # Set "system:" path
 
-        system_path = utils.slashed_path(os.getcwd())
+        system_path = slashed_path(os.getcwd())
         self._path['system']=system_path
 
         # Get configuration file
 
-        config_file = self.startup.flag.get('config','./config.yaml')
+        config_file = self.cmdline.flag.get('config', './config.yaml')
 
         # Set "shell:" path
 
-        shell_path = utils.slashed_path(os.path.abspath(os.path.dirname(config_file)))
+        shell_path = slashed_path(os.path.abspath(os.path.dirname(config_file)))
         self._path['shell']=shell_path
 
         # Load shell configuration
 
         self.config = self.load(config_file,True)
-        self._declare.config=self.config
+        self.set("config",self.config,declared=True,protect=True)
+
+        # Process config.feature section
+
+        lst = self.config.get('feature',[])
+        for itm in lst:
+            getattr(feature,f"feature_{itm}")(self)
 
         # Process config.path section
 
         hsh = self.config.get('path',{})
         for key in hsh.keys():
-            self._path[key]=utils.slashed_path(self.path(hsh.get(key)))
+            self._path[key]=slashed_path(self.path(hsh.get(key)))
 
         # Load dynashell settings
 
-        res = utils.load_resource("dynashell", "setting.yaml")
+        res = load_resource("setting.yaml","dynashell")
 
         platform = 'default'
         for key in res.keys():
@@ -91,7 +97,7 @@ class Shell:
                 key,val = itm.split('=')
                 setting[key]=val
             else:
-                res = utils.load_resource(None,self.path(itm))
+                res = load_resource(self.path(itm))
                 if res.get('default'):
                     setting.update(res.get('default',{}))
                     setting.update(res.get(platform,{}))
@@ -101,7 +107,7 @@ class Shell:
         # Create setting object
 
         self.setting = Dictionary(setting)
-        self._declare.setting = self.setting
+        self.set("setting",self.setting,declared=True,protect=True)
 
         # Handle USE_READLINE
 
@@ -112,13 +118,13 @@ class Shell:
         if self._path.get('temp') is None:
             self._path['temp'] = self.path("shell:/temp")
 
-        utils.reset_path(self._path['temp'])
+        reset_dir(self._path['temp'])
 
         # Process config.module section
 
         lst = self.config.get('module',[])
         for itm in lst:
-            pth = utils.slashed_path(self.path(itm))
+            pth = slashed_path(self.path(itm))
             self._module.append(pth)
             site.addsitedir(pth)
 
@@ -131,26 +137,22 @@ class Shell:
 
         lst = self.config.get('source',[])
         for itm in lst:
-            pth = utils.slashed_path(self.path(itm))
+            pth = slashed_path(self.path(itm))
             self._source.append(pth)
 
-        # Execute STARTUP scripts
-        # NOTE : Use config.source so we get ':' paths instead of absolute resolved ones
+        # Process config.import section
 
-        for pth in self.config.get('source',[]):
-            time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
-            self.dynaload(self.source(f"{pth}/STARTUP",True))
-
-        # Execute startup scripts
-
-        lst = self.config.get('startup',[])
+        lst = self.config.get('import',[])
         for itm in lst:
-            time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
-            self.execute(Command(itm))
+            __import__(itm)
 
         # Define atexit handler to deal with ctrl-c exit
 
-        atexit.register(lambda : Shell.Instance.shutdown() )
+        atexit.register(lambda : Shell.Instance.shutdown())
+
+        # Execute startup scripts
+
+        self.startup()
 
         # Start command reader
 
@@ -162,6 +164,31 @@ class Shell:
 
         self.shutdown()
 
+    def feature(self,cfg):
+
+        if cfg.get('field'):
+            for key,val in cfg.get('field').items():
+                setattr(self,key,val)
+
+        if cfg.get('method'):
+            self.extend(cfg.get('method'))
+
+        if cfg.get('parser'):
+            self._parser.append(cfg.get('parser'))
+
+        if cfg.get('executor'):
+            self._executor.append(cfg.get('executor'))
+
+    def startup(self):
+
+        # Execute STARTUP scripts
+
+        for itm in self.resolve("STARTUP",collect=True): self.link(self.source(itm))
+
+        # Execute startup scripts
+
+        for itm in self.config.get('startup',[]): self.execute(Command(itm))
+
     def shutdown(self):
 
         if self.config.running:
@@ -170,218 +197,67 @@ class Shell:
 
             lst = self.config.get('shutdown',[])
             for itm in lst:
-                time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
                 self.execute(Command(itm))
 
             # Execute SHUTDOWN scripts
-            # NOTE : Use config.source so we get ':' paths instead of absolute resolved ones
 
-            for pth in self.config.get('source', []):
-                time.sleep(float(self.setting.SCRIPT_EXECUTION_DELAY))
-                self.dynaload(self.source(f"{pth}/SHUTDOWN", True))
+            for itm in self.resolve("SHUTDOWN", collect=True): self.link(self.source(itm))
 
             # Only run shutdown() once.
 
             self.config.running=False
-
-    def handler(self,*args): # wrd1,wrd2,fnc
-
-        # handler({...})
-
-        if len(args)==1:
-
-            for verb,hsh in args[0].items():
-                for noun,fnc in hsh.items():
-                    self.handler(verb,noun,fnc)
-
-            return
-
-        # handler(verb,noun,fnc)
-
-        if len(args)==3:
-
-            (verb,noun,fnc)=args
-
-            if self._handler.get(verb) is None:
-                self._handler[verb] = {}
-
-            self._handler[verb][noun] = fnc
-
-            return
-
-    def macro(self,*args):
-
-        # macro({...})
-
-        if len(args)==1:
-            for typ,fnc in args[0].items(): self.macro(typ,fnc)
-
-        # macro(key,fnc)
-
-        if len(args)==2:
-            (typ,fnc)=args
-
-            check.is_false(hasattr(self,f"macro_{typ}"), f"Macro handler {typ} already defined")
-            extend(self, {f"macro_{typ}": fnc})
-
-    def format(self,typ,fnc):
-
-        check.is_false(hasattr(self, f"format_{typ}"), f"Format handler {typ} already defined")
-        extend(self, {f"format_{typ}": fnc})
 
     def execute(self,cmnd):
 
         try:
 
             self.command = cmnd
-            self._declare.command = cmnd
+            self.set("command",cmnd,declared=True)
 
-            # execution by handler
+            # Try executors
 
-            if self._handler.get(cmnd.name):
+            for fnc in self._executor:
+                if fnc(self,cmnd): return
 
-                verb = cmnd.name
-
-                star = None
-
-                for noun in self._handler[verb].keys():
-
-                    if cmnd.peek(noun):
-
-                        cmnd.pop()
-                        check.is_true(self._handler[verb][noun](verb,noun,cmnd),f"{verb} {noun} has not been handled")
-                        return
-
-                    if noun == '*':
-
-                        star = self._handler[verb][noun]
-
-                if star:
-
-                    check.is_true(star(verb,'*',cmnd), f"{verb} * has not been handled")
-                    return
-
-            # execution by script
+            # Default
 
             source = self.source(cmnd.name)
             label  = cmnd.name
 
-            self.dynaload(source,label)
+            self.link(source, label)
 
         except:
             traceback.print_exc()
 
-    def dynaload(self,source,label='Anonymous'):
+    def link(self, source, label='Anonymous'):
 
-        if source:
+        if not is_empty(source):
 
-            file   = self.script(source,label)
-            mod    = importlib.import_module(file)
+            time.sleep(float(self.setting.LINK_DELAY))
+
+            src = self.compile(source, label)
+
+            modname = f"script{self._counter}"
+            self._counter += 1
+
+            if self.setting.LINK_DEBUG:
+                save_file(self.path(f"temp:{modname}.py"),src)
+                mod = importlib.import_module(modname)
+            else:
+                mod=import_from_string(modname,src)
 
             # call onImport (optional)
 
-            if hasattr(mod, "onImport"): getattr(mod,"onImport")(self,mod)
+            if hasattr(mod,"onImport"): getattr(mod,"onImport")(self,mod)
 
-    def source(self,name,silent=False):
-
-        # explicit source
-
-        if ":" in name:
-
-            name = self.path(name)
-            if utils.file_exists(name):
-                return self.parse(utils.load_file(name))
-
-        # implicit source
-
-        else:
-
-            for pth in self._source:
-                if utils.file_exists(f"{pth}/{name}"):
-                    return self.parse(utils.load_file(f"{pth}/{name}"))
-
-        # Source not found
-
-        if not silent: check.failure(f"Could not find source for '{name}'")
-
-        return None
-
-    def parse(self,src):
-
-        ret = ""
-
-        # Get rid of leading/trailing spaces
-
-        src = src.strip()
-
-        # Formatted ?
-
-        if src.startswith('#!'):
-
-            src = self.parse_format(src)
-
-        for line in src.splitlines():
-
-            # Macro line
-
-            if line.lstrip().startswith("@"):
-
-                ret += self.parse_macro(line)
-
-            # Normal line
-
-            else:
-
-                ret += line + "\n"
-
-        return ret
-
-    def parse_format(self,src):
-
-        src += '\n'
-        (typ,src) = src.split('\n',1)
-        typ = typ[2:]
-
-        check.not_none(self.__dict__.get(f"format_{typ}"),f"Format handler {typ} not defined")
-        return self.__dict__[f"format_{typ}"](src)
-
-    def parse_macro(self,line):
-
-        ret  = ""
-        tail = line.lstrip()
-        head = line[:len(line) - len(tail)]
-
-        cmnd = Command(tail[1:])
-        body = None
-
-        # system macros
-
-        if self.__class__.__dict__.get(f"macro_{cmnd.name}"):
-            body = self.__class__.__dict__[f"macro_{cmnd.name}"](self, cmnd)
-            if body is None: body = ""
-            body = self.parse(dedent(body))
-
-        # shell macros
-
-        elif self.__dict__.get(f"macro_{cmnd.name}"):
-
-            body = self.__dict__[f"macro_{cmnd.name}"](cmnd)
-            if body is None: body = ""
-            body = self.parse(dedent(body))
-
-        # Body is None means not handled
-
-        check.not_none(body, f"Macro {cmnd.name} not defined")
-
-        # Return indented body
-
-        for part in body.splitlines(): ret += head + part + "\n"
-
-        return ret
-
-    def script(self, source, label):
+    def compile(self, source, label):
 
         tmp = ""
+
+        # Global imports
+
+        tmp += "# Global imports\n\n"
+        tmp += "from dynashell.utils import *\n\n"
 
         # Add configured include
 
@@ -399,11 +275,15 @@ class Shell:
 
         # Add declared variables
 
-        lst = self._declare.keys()
+        lst = []
+
+        for key,cfg in self._variable.items():
+            if cfg.get('declared'): lst.append(key)
+
         if len(lst):
             tmp += "# Declared Variables\n\n"
             for key in lst:
-                tmp += f"{key} = shell._declare.{key}\n"
+                tmp += f"{key} = shell.get('{key}')\n"
             tmp += "\n"
 
         # Add script source
@@ -411,15 +291,68 @@ class Shell:
         tmp += f"# Source '{label}'\n\n"
         tmp += source
 
-        # Save script to shell's temp directory
+        return tmp
 
-        file = f"script{self._counter}"
-        self._counter += 1
-        utils.save_file(self.path(f"temp:{file}.py"),tmp)
+    def resolve(self,name,collect=False):
 
-        # Return dynascript filename
+        # If already resolved previously, just return it
 
-        return file
+        if is_file(name): return name
+
+        # Needed for collect
+
+        lst = []
+
+        # explicit source
+
+        if ":" in name:
+
+            name = self.path(name)
+            if is_file(name):
+                if collect:
+                    lst.append(name)
+                else:
+                    return name
+
+        # implicit source
+
+        else:
+
+            for pth in self._source:
+                if is_file(f"{pth}/{name}"):
+                    if collect:
+                        lst.append(f"{pth}/{name}")
+                    else:
+                        return f"{pth}/{name}"
+
+        if collect:
+            return lst
+        else:
+            return None
+
+    def source(self,name,silent=False):
+
+        file = self.resolve(name)
+
+        if file:
+            return self.parse(load_file(file))
+
+        if not silent: log_failure(f"Could not find source for '{name}'")
+
+        return None
+
+    def parse(self,src):
+
+        # Get rid of leading/trailing spaces
+
+        src = src.strip()
+
+        # Run parsers
+
+        for fnc in self._parser:
+            src = fnc(self,src)
+
+        return src
 
     def path(self,val):
 
@@ -432,71 +365,65 @@ class Shell:
 
         return val
 
-    def load(self,file,as_structure=False):
+    def load(self, file, as_dictionary=False):
 
         file = self.path(file)
 
         if file.endswith('yaml'):
 
-            ret = utils.load_yaml(file)
-            if as_structure: ret = Dictionary(ret)
+            ret = load_yaml(file)
+            if as_dictionary: ret = Dictionary(ret)
             return ret
 
         if file.endswith('json'):
 
-            ret = utils.load_json(file)
-            if as_structure: ret = Dictionary(ret)
+            ret = load_json(file)
+            if as_dictionary: ret = Dictionary(ret)
             return ret
 
-        return utils.load_file(file)
+        return load_file(file)
 
     def save(self,file,data):
 
         file = self.path(file)
 
         if file.endswith('yaml'):
-            utils.save_yaml(file,data)
+            save_yaml(file,data)
         elif file.endswith('json'):
-            utils.save_json(file,data)
+            save_json(file,data)
         else:
-            utils.save_file(file,data)
-
-    def declare(self,key,obj,renew=False):
-
-        if self._declare.has(key) & (not renew) :
-            raise Exception(f"Global variable {key} already declared, cannot be re-declared unless renew is True")
-
-        self._declare.set(key,obj)
+            save_file(file,data)
 
     def extend(self,methods):
 
         extend(self,methods)
 
-    def set(self,key,val):
+    def set(self,key,val,declared=False,protect=False):
 
-        self._variable.set(key, val)
+        if self.has(key):
+            if self._variable.get(key).get('protect'): log_failure(f"Cannot reset protected variable {key}")
+
+        self._variable[key]={'value':val,'declared':declared,'protect':protect}
 
     def get(self,key,default=None):
 
-        return self._variable.get(key, default)
+        if self.has(key):
+            return self._variable.get(key).get('value')
+        else:
+            return default
 
     def has(self,key):
 
-        return self._variable.has(key)
-
-    # system macros
-
-    def macro_include(self,cmnd):
-
-        return self.source(cmnd.pop())
+        return self._variable.get(key,False)
 
 class Reader:
 
     def __init__(self,shell):
 
         self._shell   = shell
+        self._session = PromptSession(history=FileHistory(".example-history-file"))
         self._running = True
-        self._stdin   = shell.startup.flag.get('stdin',True)
+        self._stdin   = shell.cmdline.flag.get('stdin', True)
         self._lines   = []
 
     def read_line(self):
@@ -505,7 +432,8 @@ class Reader:
             return self._lines.pop(0)
         else:
             if self._stdin:
-                return input('>')
+                #return input('>')
+                return self._session.prompt('>')
             else:
                 return None
 
@@ -586,9 +514,13 @@ class Command:
 
         if expect is not None:
             if expect!=tmp:
-                check.failure(f"Command expected '{expect}' but found '{tmp}'")
+                log_failure(f"Command expected '{expect}' but found '{tmp}'")
 
         return tmp
+
+    def push(self,val):
+
+        self.data.append(val)
 
     def peek(self,wrd):
 
@@ -614,21 +546,27 @@ class Command:
 
 class Dictionary:
 
-    Hash = {}
+    Data   = {}
+    Render = {}
 
-    def __init__(self,data=None):
+    def __init__(self,data=None,render=lambda val: val):
 
         if data is None: data = {}
 
-        Dictionary.Hash[f"{id(self)}"]=data
+        Dictionary.Data[f"{id(self)}"]   = data
+        Dictionary.Render[f"{id(self)}"] = render
 
     def data(self):
 
-        return Dictionary.Hash[f"{id(self)}"]
+        return Dictionary.Data[f"{id(self)}"]
+
+    def render(self,value):
+
+        return Dictionary.Render[f"{id(self)}"](value)
 
     def set(self,key,value):
 
-        self.data()[key]=value
+        self.data()[key]=self.render(value)
 
     def has(self,key):
 
@@ -661,13 +599,13 @@ class Dictionary:
         return self.data().popitem()
 
     def setdefault(self,key,defval):
-        self.data().setdefault(key,defval)
+        self.data().setdefault(key,self.render(defval))
 
     def update(self,hash):
         self.data().update(hash)
 
     def values(self):
-        return self.data().keys()
+        return self.data().values()
 
     #
 
@@ -677,18 +615,20 @@ class Dictionary:
 
     def __getattr__(self,key):
 
-        if not self.has(key): raise Exception(f"Unknown setting key {key} encountered")
+        if not self.has(key): log_failure(f"Undefined dictionary entry {key} encountered")
         return self.cast(self.get(key))
 
-    def __setattr__(self, key, value):
+    def __setattr__(self,key,value):
 
-        self.data()[key]=value
+        self.data()[key]=self.render(value)
 
-    def __getitem__(self, idx):
+    def __getitem__(self,idx):
+
         return self.get(idx)
 
-    def __setitem__(self, idx, val):
-        self.set(idx,val)
+    def __setitem__(self, idx, value):
+
+        self.set(idx,self.render(value))
 
     def cast(self,obj):
 
@@ -788,9 +728,10 @@ class Tokenizer:
         else:
             return False
 
-    def expect(self,ch):
+    def expect(self,exp):
 
-        check.is_value(self.next(),ch)
+        ch = self.next()
+        if ch!=exp: log_failure(f"Expected '{exp}' but got '{ch}'")
 
     def skip_spaces(self):
 
@@ -806,7 +747,7 @@ class Tokenizer:
 
         word = ''
         while self.peek() not in ' =': word += self.next()
-        check.not_empty(word)
+        if is_empty(word): log_failure("Word is empty")
         return word
 
     def read_value(self):
@@ -888,4 +829,3 @@ class Tokenizer:
             return True,txt[1:-1]
 
         return False,txt
-

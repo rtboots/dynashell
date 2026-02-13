@@ -5,52 +5,119 @@ import yaml
 import json
 import shutil
 import os
-from pathlib import Path
 import types
-import dynashell.check as check
+import importlib.util
+import sys
+from pathlib import Path
 from types import ModuleType
 import inspect as inspect
 
-def choose(by,*lst,**hsh):
+# log_ methods
+
+def log_debug(msg, fire=True):
+    if fire:
+        print(f"DEBUG   : ",msg)
+    pass
+
+def log_inform(msg, fire=True):
+    if fire:
+        print(f"INFORM  : ",msg)
+
+def log_warning(msg, fire=True):
+    if fire:
+        print(f"WARNING : ",msg)
+
+def log_error(msg, fire=True):
+    if fire:
+        print(f"ERROR   : ",msg)
+
+def log_failure(msg, fire=True):
+    if fire:
+        print(f"FAILURE : ", msg)
+        raise Exception(msg)
+
+# is_ methods
+
+def is_dir(chk):
+
+    obj = Path(chk)
+    if not obj.exists(): return False
+    if not obj.is_dir(): return False
+    return True
+
+def is_file(chk):
+
+    obj = Path(chk)
+    if not obj.exists(): return False
+    if not obj.is_file(): return False
+    return True
+
+def is_none(chk):
+
+    return chk is None
+
+def is_val_in(chk, *allow):
+
+    return chk in allow
+
+def is_end_in(chk, *allow):
+
+    for test in allow:
+        if chk.endswith(test): return True
+    return False
+
+def is_empty(chk):
+
+    if is_none(chk): return True
+
+    return len(chk)==0
+
+def is_callable(chk):
+
+    return callable(chk)
+#
+
+def choose(by, *lst, **hsh):
 
     if (len(hsh)==0)&(len(lst)==1):
 
         return by if by is not None else lst[0]
 
-    raise Exception("Unresolved choice")
+    log_failure("Unresolved choice")
+    return None
 
 def get_environ(key):
 
     return os.environ[key]
 
-def set_environ(key,val):
+def set_environ(key, val):
 
     os.environ[key]=val
 
 def load_file(file):
 
-    check.file_exists(file)
+    if not is_file(file): log_failure(f"File '{file}' does not exist")
     with open(file,'r') as f:
         data=f.read()
     return data
 
-def save_file(file,data):
+def save_file(file, data):
 
-    create_path(os.path.dirname(file))
+    create_dir(os.path.dirname(file))
     with open(file,'w') as f:
         f.write(data)
         f.close()
 
 def load_yaml(file):
 
-    check.file_exists(file)
+    if not is_file(file): log_failure(f"File '{file}' does not exist")
     with open(file,'r') as f:
         data = yaml.load(f,Loader=yaml.FullLoader)
     return data
 
-def save_yaml(file,data):
+def save_yaml(file, data):
 
-    create_path(os.path.dirname(file))
+    create_dir(os.path.dirname(file))
     with open(file,'w') as f:
         yaml.dump(data,f,default_flow_style=False)
 
@@ -60,23 +127,23 @@ def dump_yaml(data):
 
 def load_json(file):
 
-    check.file_exists(file)
+    if not is_file(file): log_failure(f"File '{file}' does not exist")
     with open(file,'r') as f:
         data = json.load(f,object_hook=decimal_decoder)
     return data
 
-def save_json(file,data,indent=True):
+def save_json(file, data, indent=True):
 
-    create_path(os.path.dirname(file))
+    create_dir(os.path.dirname(file))
     with open(file,'w') as f:
         if indent:
-            json.dump(data,f,indent=4,cls=decimal_encoder)
+            json.dump(data, f, indent=4, cls=DecimalEncoder)
         else:
-            json.dump(data,f,cls=decimal_encoder)
+            json.dump(data, f, cls=DecimalEncoder)
 
 def dump_json(data):
 
-    return json.dumps(data,indent=4,cls=decimal_encoder)
+    return json.dumps(data, indent=4, cls=DecimalEncoder)
 
 def slashed_path(path):
 
@@ -85,23 +152,13 @@ def slashed_path(path):
     if path.endswith('/'): path = path[:-1]
     return path
 
-def file_exists(file):
-
-    obj = Path(file)
-    return obj.exists() and obj.is_file()
-
-def path_exists(file):
-
-    obj = Path(file)
-    return obj.exists() and obj.is_dir()
-
-def create_path(path):
+def create_dir(path):
 
     os.makedirs(path,exist_ok=True)
 
-def clear_path(path):
+def clear_dir(path):
 
-    if path_exists(path):
+    if is_dir(path):
 
         for filename in os.listdir(path):
 
@@ -119,29 +176,29 @@ def clear_path(path):
 
             except Exception as e:
 
-                print(f'Failed to delete {file_path}. Reason: {e}')
+                log_failure(f'Failed to delete {file_path}. Reason: {e}')
 
     else:
 
-        create_path(path)
+        create_dir(path)
 
-def reset_path(path):
+def reset_dir(path):
 
-    create_path(path)
-    clear_path(path)
+    create_dir(path)
+    clear_dir(path)
 
-def remove_path(path):
+def remove_dir(path):
 
-    shutil.rmtree(path,onerror = lambda _func,_path,_info : print(_info))
+    shutil.rmtree(path,onerror = lambda _func,_path,_info : log_error(_info))
 
-def unique_id(chrset,length):
+def unique_id(chrset, length):
 
     ret = ""
     for cnt in range(0,length):
         ret += chrset[random.randint(0,len(chrset)-1)]
     return ret
 
-def pretty_print_dict(d,indent=0):
+def pretty_print_dict(d, indent=0):
 
     for key,value in d.items():
         print(' ' * indent + str(key) + ': ', end='')
@@ -151,7 +208,7 @@ def pretty_print_dict(d,indent=0):
         else:
             print(value)
 
-def extend(obj,ext):
+def extend(obj, ext):
 
     if ext is None: return
 
@@ -168,7 +225,7 @@ def extend(obj,ext):
                 hsh[mth]=fnc
         extend(obj,hsh)
 
-class decimal_encoder(json.JSONEncoder):
+class DecimalEncoder(json.JSONEncoder):
 
     def default(self,obj):
         if isinstance(obj,Decimal):
@@ -182,7 +239,7 @@ def decimal_decoder(obj):
             if value.startswith("@D:"): obj[key] = Decimal(value[3:])
     return obj
 
-def load_resource(package,filename):
+def load_resource(filename, package=None):
 
     ret = None
 
@@ -190,7 +247,7 @@ def load_resource(package,filename):
 
         inp_file = (resource_loader.files(package) / filename)
 
-        with inp_file.open("rt") as f:
+        with inp_file.open("r") as f:
             if filename.endswith('.json'):
                 ret = json.load(f,object_hook=decimal_decoder)
             elif filename.endswith('.yaml'):
@@ -206,6 +263,13 @@ def load_resource(package,filename):
         else:
             ret = load_file(filename)
 
-    check.not_none(ret)
+    if is_none(ret): log_failure(f"Could not load resource '{filename}'")
 
     return ret
+
+def import_from_string(module_name, source_code):
+    spec = importlib.util.spec_from_loader(module_name, loader=None)
+    module = importlib.util.module_from_spec(spec)
+    exec(source_code, module.__dict__)
+    sys.modules[spec.name] = module
+    return module
