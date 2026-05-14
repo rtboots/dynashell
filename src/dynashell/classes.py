@@ -150,14 +150,17 @@ class Shell:
 
         atexit.register(lambda : Shell.Instance.shutdown())
 
+        # Create reader
+
+        self.config.running=True
+        self.reader = Reader(self)
+
         # Execute startup scripts
 
         self.startup()
 
-        # Start command reader
+        # Start reader
 
-        self.config.running=True
-        self.reader = Reader(self)
         self.reader.start()
 
         # Execute shutdown scripts
@@ -195,9 +198,7 @@ class Shell:
 
             # Execute shutdown scripts
 
-            lst = self.config.get('shutdown',[])
-            for itm in lst:
-                self.execute(Command(itm))
+            for itm in self.config.get('shutdown',[]): self.execute(Command(itm))
 
             # Execute SHUTDOWN scripts
 
@@ -207,9 +208,15 @@ class Shell:
 
             self.config.running=False
 
+    def enter(self):
+
+        self.clear()
+
     def execute(self,cmnd):
 
         try:
+
+            saved = self.command
 
             self.command = cmnd
             self.set("command",cmnd,declared=True)
@@ -226,8 +233,14 @@ class Shell:
 
             self.link(source, label)
 
+            self.command = saved
+
         except:
             traceback.print_exc()
+
+    def leave(self):
+
+        self.clear()
 
     def link(self, source, label='Anonymous'):
 
@@ -394,16 +407,24 @@ class Shell:
         else:
             save_file(file,data)
 
+    def kill(self,file):
+
+        file = self.path(file)
+        kill_file(file)
+
     def extend(self,methods):
 
         extend(self,methods)
 
-    def set(self,key,val,declared=False,protect=False):
+    def set(self,key,val,declared=False,protect=False,transient=False):
 
         if self.has(key):
             if self._variable.get(key).get('protect'): log_failure(f"Cannot reset protected variable {key}")
 
-        self._variable[key]={'value':val,'declared':declared,'protect':protect}
+        if val is None:
+            del self._variable[key]
+        else:
+            self._variable[key]={'value':val,'declared':declared,'protect':protect,'transient':transient}
 
     def get(self,key,default=None):
 
@@ -416,24 +437,53 @@ class Shell:
 
         return self._variable.get(key,False)
 
+    def clear(self):
+
+        lst = []
+        for key,cfg in self._variable.items():
+            if cfg.get('transient'):
+                lst.append(key)
+
+        for key in lst:
+                del self._variable[key]
+
+    def render(self,txt,hsh=None,partial=False):
+
+        if hsh is None: hsh = {}
+
+        hsh = {**self.command.value,**self.setting,**hsh}
+
+        if partial:
+
+            class _format(dict):
+                def __missing__(self, key):
+                    return "{" + key + "}"
+
+            hsh = _format(hsh)
+            return txt.format_map(hsh)
+
+        else:
+
+            return txt.format(**hsh)
+
 class Reader:
 
     def __init__(self,shell):
 
         self._shell   = shell
-        self._session = PromptSession(history=FileHistory(".example-history-file"))
+        self._session = PromptSession(history=FileHistory(".history"))
+        self._prompt  = ">"
         self._running = True
         self._stdin   = shell.cmdline.flag.get('stdin', True)
         self._lines   = []
 
-    def read_line(self):
+    def line(self):
 
         if len(self._lines)!=0:
             return self._lines.pop(0)
         else:
             if self._stdin:
-                #return input('>')
-                return self._session.prompt('>')
+                return self._session.prompt(self._prompt)
             else:
                 return None
 
@@ -449,7 +499,7 @@ class Reader:
 
         while self._running:
 
-            line = self.read_line()
+            line = self.line()
 
             # No more lines to read
 
@@ -467,7 +517,18 @@ class Reader:
 
             # Execute command
 
+            self._shell.enter()
             self._shell.execute(Command(line))
+            self._shell.leave()
+
+    def session(self,hfile,prompt=">"):
+
+        self._session = PromptSession(history=FileHistory(self._shell.path(hfile)))
+        self._prompt  = prompt
+
+    def prompt(self,val):
+
+        self._prompt = val
 
 class Command:
 
@@ -478,20 +539,42 @@ class Command:
         self.name  = cmd["name"]
         self.text  = cmd["text"]
 
-        self.data  = cmd["data"]
-        if data: self.data.extend(data)
+        # self.data  = cmd["data"]
+        # if data: self.data.extend(data)
 
-        self.value = cmd["value"]
-        if value: self.value.update(value)
-        self.value = Dictionary(self.value)
+        tmp = []
+        if data: tmp.extend(data)
+        tmp.extend(cmd["data"])
+        self.data = tmp
 
-        self.flag  = cmd["flag"]
-        if flag: self.flag.update(flag)
-        self.flag  = Dictionary(self.flag)
+        # self.value = cmd["value"]
+        # if value: self.value.update(value)
+        # self.value = Dictionary(self.value)
+
+        tmp = {}
+        if value: tmp.update(value)
+        tmp.update(cmd["value"])
+        self.value = Dictionary(tmp)
+
+        # self.flag  = cmd["flag"]
+        # if flag: self.flag.update(flag)
+        # self.flag  = Dictionary(self.flag)
+
+        tmp = {}
+        if flag: tmp.update(flag)
+        tmp.update(cmd["flag"])
+        self.flag = Dictionary(tmp)
+
+        self.body  = None
 
     def __str__(self):
 
-        return f"<{self.name} data:{self.data} value:{self.value} flag:{self.flag}>"
+        ret = f"<{self.name} data:{self.data} value:{self.value} flag:{self.flag}>"
+
+        if self.body:
+            ret += f"{{\n{self.body}\n}}"
+
+        return ret
 
     def see(self,chk):
 
@@ -529,14 +612,14 @@ class Command:
         else:
             return False
 
-    def shift(self,into):
+    def shift(self,into=None):
 
         tmp = None
 
         if len(self.data):
             tmp = self.data.pop(0)
 
-        self.value.set(into,tmp)
+        if into is not None: self.value.set(into,tmp)
 
         return tmp
 
@@ -615,7 +698,7 @@ class Dictionary:
 
     def __getattr__(self,key):
 
-        if not self.has(key): log_failure(f"Undefined dictionary entry {key} encountered")
+        if not self.has(key): return None # log_failure(f"Undefined dictionary entry {key} encountered")
         return self.cast(self.get(key))
 
     def __setattr__(self,key,value):
@@ -677,7 +760,7 @@ class Tokenizer:
         if self.scan('--'):
 
             key = self.read_word()
-            val = True
+            val = None
             if self.scan('='): val = self.read_value()
             return Token(typ=Token.FLAG,key=key,val=val)
 
@@ -786,46 +869,19 @@ class Tokenizer:
         line = line.strip()
         text = line
 
+        (name,line) = (line+' ').split(' ',1)
+
         for tok in Tokenizer(line+' ').parse():
 
             if tok.typ == Token.DATA:
                 cmd['data'].append(tok.val)
             if tok.typ == Token.VALUE:
-                _, cmd['value'][tok.key] = Tokenizer.Value(tok.val)
+                cmd['value'][tok.key] = str_to_type(tok.val)
             if tok.typ == Token.FLAG:
-                _, cmd['flag'][tok.key] = Tokenizer.Value(tok.val)
+                if tok.val is None: tok.val = True
+                cmd['flag'][tok.key] = str_to_type(tok.val)
 
-        name = cmd['data'].pop(0)
         cmd['name'] = name
         cmd['text'] = text[len(name) + 1:].strip()
 
         return cmd
-
-    @staticmethod
-    def Value(txt):
-
-        if not isinstance(txt,str): return True,txt
-
-        txt = txt.strip()
-
-        if txt=='null'  : return True,None
-        if txt=='None'  : return True,None
-        if txt=='true'  : return True,True
-        if txt=='True'  : return True,True
-        if txt=='false' : return True,False
-        if txt=='False' : return True,False
-
-        try:
-            return True,int(txt)
-        except:
-            pass
-
-        try:
-            return True,float(txt)
-        except:
-            pass
-
-        if txt.startswith('"') | txt.startswith('\''):
-            return True,txt[1:-1]
-
-        return False,txt

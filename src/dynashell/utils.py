@@ -108,6 +108,10 @@ def save_file(file, data):
         f.write(data)
         f.close()
 
+def kill_file(file):
+    if os.path.exists(file):
+        os.remove(file)
+
 def load_yaml(file):
 
     if not is_file(file): log_failure(f"File '{file}' does not exist")
@@ -191,7 +195,7 @@ def remove_dir(path):
 
     shutil.rmtree(path,onerror = lambda _func,_path,_info : log_error(_info))
 
-def unique_id(chrset, length):
+def unique_id(chrset="abcdefghijklmnopqrstuvwxyz", length=8):
 
     ret = ""
     for cnt in range(0,length):
@@ -273,3 +277,31 @@ def import_from_string(module_name, source_code):
     exec(source_code, module.__dict__)
     sys.modules[spec.name] = module
     return module
+
+def str_to_type(txt):
+
+    if not isinstance(txt,str): return txt
+
+    txt = txt.strip()
+
+    if txt=='null'  : return None
+    if txt=='None'  : return None
+    if txt=='true'  : return True
+    if txt=='True'  : return True
+    if txt=='false' : return False
+    if txt=='False' : return False
+
+    try:
+        return int(txt)
+    except:
+        pass
+
+    try:
+        return float(txt)
+    except:
+        pass
+
+    if txt.startswith('"') | txt.startswith('\''):
+        return txt[1:-1]
+
+    return txt

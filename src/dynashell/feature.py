@@ -1,4 +1,5 @@
 from textwrap import dedent
+
 from dynashell.utils import *
 
 # -----
@@ -435,7 +436,9 @@ class Validator:
         for act in scr:
 
             if act['id'] == 'shift':
-                if val is None: val = ctx.shift()
+                if val is None:
+                    log_failure(f"Value of {key} could not be shifted from empty command line", ctx.empty())
+                    val = ctx.shift()
 
             if act['id'] == 'is_in':
                 lst = act['args']
@@ -447,3 +450,207 @@ class Validator:
 
 def default(val=None):
     return Validator(val)
+
+# -----
+# Feature : scripter
+# -----
+
+def feature_scripter(self):
+
+    shell(self)
+
+    class Scripter:
+
+        def __init__(self,shell):
+
+            self.shell   = shell
+            self.header  = ""
+            self.handler = {}
+
+        def parse_script(self,script):
+
+            pycode = dedent("""
+            from dynashell.classes import *
+            #from textwrap import dedent
+    
+            value = command.value
+            data  = command.data
+            flag  = command.flag
+            body  = command.body           
+             
+            """)
+
+            pycode += self.header
+
+            source = script.splitlines()
+            while len(source):
+
+                line = source.pop(0)
+                tail = line.lstrip()
+
+                if tail.startswith('@'):
+
+                    head = line[:len(line) - len(tail)]
+                    (hdlr, text) = (tail[1:] + ' ').split(' ', 1)
+                    text = text.rstrip()
+                    body = None
+
+                    if text.endswith('{'):
+                        body = self.parse_body(source)
+                        text = text[:-1]
+
+                    text = text.strip()
+
+                    #
+
+                    rslt = self.invoke(hdlr,text,body)
+                    if rslt is None: log_failure(f"Script has no handler for @{hdlr}")
+                    rslt = dedent(rslt)
+                    for part in rslt.splitlines(): pycode += head + part + "\n"
+
+                else:
+
+                    pycode += self.parse_line(line)
+
+            if self.shell.command.flag.get('debug',False):
+                print(f"=====\n{self.shell.command}\n{pycode}\n=====\n")
+
+            return pycode
+
+        def parse_body(self,lines):
+
+            txt = ""
+
+            line = lines.pop(0).rstrip()
+
+            while not line.lstrip().startswith('}'):
+                txt += self.parse_line(line)
+                line = lines.pop(0).rstrip()
+
+            return dedent(txt)
+
+        def parse_line(self,line):
+
+            head = line.lstrip()
+
+            # Note : for #! lines in scripts
+            if head.startswith('#!'):
+                return line + "\n"
+
+            # Note : comment lines
+            if head.startswith('#'):
+                return ""
+
+            return line + "\n"
+
+        def extend(self,header=None,handler=None):
+
+            if header is not None:
+                self.header += "\n"+dedent(header)
+
+            if handler is not None:
+                for (k,v) in handler.items():
+                    self.handler[k] = v
+
+        def invoke(self, hdlr, text, body):
+
+            if body is None:
+                bid = None
+            else:
+                bid = unique_id()
+                self.shell.set(bid,body,transient=True)
+                bid = f"'{bid}'"
+
+            return f"shell.scripter().execute('{hdlr}','{text}',{bid})"
+
+        def execute(self, hdlr, text, bid):
+
+            # print(f"execute {hdlr} {text} {bid}")
+
+            if text is None: text = ""
+
+            text = text.strip()
+
+            if len(text):
+                text = self.shell.render(text)
+            else:
+                text = None
+
+            if bid is None:
+                body = None
+            else:
+                if self.shell.has(bid):
+                    body = dedent(self.shell.render(self.shell.get(bid),partial=True))
+                else:
+                    #body = bid
+                    body = dedent(self.shell.render(bid,partial=True))
+
+            # scripter defined handler
+
+            if self.handler.get(hdlr):
+
+                self.handler.get(hdlr)(self.shell, self.shell.command,text,body)
+                return
+
+            # source defined handler
+
+            if self.shell.resolve(hdlr):
+
+                from dynashell.classes import Command
+                if text is not None: hdlr += f" {text}"
+                cmnd = Command(f'{hdlr}',value=self.shell.command.value,flag=self.shell.command.flag) # data=self.shell.command.data,
+                cmnd.body = body
+                self.shell.execute(cmnd)
+                return
+
+            log_failure(f"Don't know how to handle {hdlr}")
+
+    self.feature({
+
+        'field': {
+            '_scripter': Scripter(self)
+        },
+        'method': {
+            'scripter': lambda self: self._scripter
+        }
+    })
+
+    def scripter(shell,script):
+
+        return shell.scripter().parse_script(script)
+
+    self.formatter("scripter",scripter)
+
+
+# -----
+# Feature : forwarder
+# -----
+
+def feature_forwarder(self):
+
+    shell(self)
+
+    # Methods
+
+    def forwarder(self,fnc):
+
+        self._forwarder = fnc
+
+    # Executor
+
+    def executor(self,cmnd):
+
+        self._forwarder(cmnd)
+        return True
+
+    # Define
+
+    self.feature({
+        'field': {
+            '_forwarder': {}
+        },
+        'method': {
+            'forwarder': forwarder
+        },
+        'executor': executor
+    })
