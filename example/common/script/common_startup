@@ -4,7 +4,7 @@ print('...common_startup')
 # shell.declare() will make 'label' available to subsequent script invocations as a variable (see session_setup)
 # -----
 
-shell.declare('label','Exported Value')
+shell.set('label','Exported Value',declared=True)
 
 # -----
 # shell.set() will set a shell value can be retrieved with shell.get()  (see session_setup)
