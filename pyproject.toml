@@ -26,3 +26,5 @@ where = ["src"]
 dynashell = ["*.json","*.yaml"]
 [project.urls]
 Homepage = "https://github.com/rtboots/dynashell"
+[project.scripts]
+dynashell = "dynashell.main:run_shell"
