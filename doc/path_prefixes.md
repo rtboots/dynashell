@@ -11,7 +11,7 @@ Dynashell uses prefixes in path specifications for simplification. On startup of
 | **shell:**  | The directory the configuration file is read from |
 
 The configuration file has a *path* section that allows for additional prefixes to be specified 
-(see [config](config.md)).
+(see [config](config_file.md)).
 
 Some prefixes are implicitly defined if they have not been defined in the configuration :
 

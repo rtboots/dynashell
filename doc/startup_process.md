@@ -10,7 +10,7 @@ dynashell <arguments>
 ```
 
 On startup the shell will try and read a configuration file and process it 
-(see [config](config.md))
+(see [config](config_file.md))
 
 
 
