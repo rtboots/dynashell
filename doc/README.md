@@ -1,5 +1,7 @@
 ### Main topics
 
+These sections are vital in understanding how dynashell functions.
+
 | Section                          | Description            |
 |----------------------------------|------------------------|
 | [startup process](startup.md)    | The startup process    |
@@ -11,6 +13,8 @@
 | [shutdown process](shutdown.md)  | The shutdown process   |
 
 ### Additional Reading
+
+These sections provide in-depth information about certain aspects of dynashell. 
 
 | Section                             | Description            |
 |-------------------------------------|------------------------|
