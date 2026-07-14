@@ -1,6 +1,6 @@
 [[main](README.md)] 
 
-### Config
+### Configuration File
 
 When the Dynashell instance is created, it will need a configuration YAML file. You can specify the file
 to be read on the startup line :
@@ -14,7 +14,7 @@ The configuration file can contain the following system sections :
 
 | section  | purpose                                                            |
 |----------|--------------------------------------------------------------------|
-| path     | Define additional path prefixes (see [paths](paths.md))            |
+| path     | Define additional path prefixes (see [paths](prefixes.md))            |
 | module   | Define paths for resolving module **import** statements in scripts |
 | source   | Define paths for script resolution                                 |
 | include  | Define common script header                                        |

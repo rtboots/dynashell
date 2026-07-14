@@ -1,3 +1,3 @@
 [[main](README.md)] 
 
-### Dictionary
+### Dictionary Objects

@@ -1,6 +1,6 @@
 [[main](README.md)] 
 
-### Paths
+### Path Prefixes
 
 Dynashell uses prefixes in path specifications for simplification. On startup of dynashell
 2 prefixes are already defined :
