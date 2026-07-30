@@ -7,22 +7,23 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 
 from dynashell.utils import *
-import dynashell.feature as feature
+import dynashell.logger as log
+
+def shell(): return Shell.Instance()
 
 class Shell:
 
-    # Shell Instance storage
-
-    Instance = None
-
+    @staticmethod
+    def Instance():
+        return tlocal("shell")
     #
 
-    def __init__(self,line):
+    def __init__(self,line,driver=None):
 
         # Set shell instance
 
-        if not is_none(Shell.Instance): log_failure("Only 1 instance of Shell allowed")
-        Shell.Instance = self
+        if not is_none(tlocal("shell")): log.failure("Only 1 instance of Shell allowed")
+        tlocal("shell", self)
 
         # Public properties
 
@@ -30,7 +31,7 @@ class Shell:
         self.config     = None
         self.setting    = {}
         self.command    = None
-        self.reader     = None
+        self.prompt     = None
 
         # Private properties
 
@@ -42,13 +43,19 @@ class Shell:
         self._parser    = []
         self._executor  = []
 
-        # Declare cmdline
+        # Logging Level
 
-        self.set("cmdline",self.cmdline,declared=True,protect=True)
+        log.level(self.cmdline.flag.get('loglevel', 'ERROR'))
+        log.debug("Created shell instance")
+
+        # Declare startup
+
+        self.set("cmdline", self.cmdline, declared=True, protect=True)
 
         # Set "system:" path
 
         system_path = slashed_path(os.getcwd())
+        log.debug(f"Defining 'system:' prefix as {system_path}")
         self._path['system']=system_path
 
         # Get configuration file
@@ -58,10 +65,12 @@ class Shell:
         # Set "shell:" path
 
         shell_path = slashed_path(os.path.abspath(os.path.dirname(config_file)))
+        log.debug(f"Defining 'shell:' prefix as {shell_path}")
         self._path['shell']=shell_path
 
         # Load shell configuration
 
+        log.debug(f"Loading config file {config_file}")
         self.config = self.load(config_file,True)
         self.set("config",self.config,declared=True,protect=True)
 
@@ -69,13 +78,17 @@ class Shell:
 
         lst = self.config.get('feature',[])
         for itm in lst:
+            import dynashell.feature as feature
+            log.debug(f"Enabling {itm} feature")
             getattr(feature,f"feature_{itm}")(self)
 
         # Process config.path section
 
         hsh = self.config.get('path',{})
         for key in hsh.keys():
-            self._path[key]=slashed_path(self.path(hsh.get(key)))
+            _=slashed_path(self.path(hsh.get(key)))
+            log.debug(f"Defining '{key}:' prefix as {_}")
+            self._path[key]=_
 
         # Load dynashell settings
 
@@ -97,6 +110,7 @@ class Shell:
                 key,val = itm.split('=')
                 setting[key]=val
             else:
+                # TODO : Test this better...
                 res = load_resource(self.path(itm))
                 if res.get('default'):
                     setting.update(res.get('default',{}))
@@ -108,15 +122,20 @@ class Shell:
 
         self.setting = Dictionary(setting)
         self.set("setting",self.setting,declared=True,protect=True)
+        log.debug(f"Declared settings {self.setting}")
 
         # Handle USE_READLINE
 
-        if self.setting.USE_READLINE: import readline
+        if self.setting.USE_READLINE:
+            log.debug("Importing readline (USE_READLINE)")
+            import readline
 
         # Determine temp path (for dynascript storage)
 
         if self._path.get('temp') is None:
-            self._path['temp'] = self.path("shell:/temp")
+            _ = self.path("shell:/temp")
+            log.debug(f"Defining 'temp:' prefix as {_}")
+            self._path['temp'] = _
 
         reset_dir(self._path['temp'])
 
@@ -126,11 +145,13 @@ class Shell:
         for itm in lst:
             pth = slashed_path(self.path(itm))
             self._module.append(pth)
+            log.debug(f"Add module path {pth}")
             site.addsitedir(pth)
 
         # Add shell temp path (for dynascript storage) to module locations
 
         self._module.append(self._path['temp'])
+        log.debug(f"Add module path {self._path['temp']}")
         site.addsitedir(self._path['temp'])
 
         # Process config.script section
@@ -138,30 +159,24 @@ class Shell:
         lst = self.config.get('source',[])
         for itm in lst:
             pth = slashed_path(self.path(itm))
+            log.debug(f"Add script path {pth}")
             self._source.append(pth)
 
         # Process config.import section
 
         lst = self.config.get('import',[])
         for itm in lst:
+            log.debug(f"Importing {itm}")
             __import__(itm)
-
-        # Define atexit handler to deal with ctrl-c exit
-
-        atexit.register(lambda : Shell.Instance.shutdown())
-
-        # Create reader
-
-        self.config.running=True
-        self.reader = Reader(self)
 
         # Execute startup scripts
 
         self.startup()
 
-        # Start reader
+        # Call driver
 
-        self.reader.start()
+        if driver is None: driver=Prompt.Driver()
+        driver(self)
 
         # Execute shutdown scripts
 
@@ -184,24 +199,34 @@ class Shell:
 
     def startup(self):
 
+        self.config.running=True
+
+        log.debug("Entering startup()")
+
         # Execute STARTUP scripts
 
+        log.debug("Executing implicit STARTUP script set")
         for itm in self.resolve("STARTUP",collect=True): self.link(self.source(itm))
 
         # Execute startup scripts
 
+        log.debug("Executing configured startup scripts")
         for itm in self.config.get('startup',[]): self.execute(Command(itm))
 
     def shutdown(self):
 
         if self.config.running:
 
+            log.debug("Entering shutdown()")
+
             # Execute shutdown scripts
 
+            log.debug("Executing configured shutdown scripts")
             for itm in self.config.get('shutdown',[]): self.execute(Command(itm))
 
             # Execute SHUTDOWN scripts
 
+            log.debug("Executing implicit SHUTDOWN script set")
             for itm in self.resolve("SHUTDOWN", collect=True): self.link(self.source(itm))
 
             # Only run shutdown() once.
@@ -210,6 +235,7 @@ class Shell:
 
     def enter(self):
 
+        log.debug("Removing transient script variables")
         self.clear()
 
     def execute(self,cmnd):
@@ -240,6 +266,7 @@ class Shell:
 
     def leave(self):
 
+        log.debug("Removing transient script variables")
         self.clear()
 
     def link(self, source, label='Anonymous'):
@@ -248,7 +275,7 @@ class Shell:
 
             time.sleep(float(self.setting.LINK_DELAY))
 
-            src = self.compile(source, label)
+            src = self.compile(source,label)
 
             modname = f"script{self._counter}"
             self._counter += 1
@@ -283,8 +310,8 @@ class Shell:
         # Add shell instance
 
         tmp += "# Shell Instance\n\n"
-        tmp += "from dynashell.main import instance\n"
-        tmp += "shell = instance()\n\n"
+        tmp += "from dynashell.classes import Shell\n"
+        tmp += "shell = Shell.Instance()\n\n"
 
         # Add declared variables
 
@@ -310,7 +337,8 @@ class Shell:
 
         # If already resolved previously, just return it
 
-        if is_file(name): return name
+        if is_file(name):
+            return name
 
         # Needed for collect
 
@@ -320,11 +348,13 @@ class Shell:
 
         if ":" in name:
 
+            _ = name
             name = self.path(name)
             if is_file(name):
                 if collect:
                     lst.append(name)
                 else:
+                    log.debug(f"Resolved script {_} as {name}")
                     return name
 
         # implicit source
@@ -336,9 +366,11 @@ class Shell:
                     if collect:
                         lst.append(f"{pth}/{name}")
                     else:
+                        log.debug(f"Resolved script {name} as {pth}/{name}")
                         return f"{pth}/{name}"
 
         if collect:
+            log.debug(f"Resolved script set {name} as {lst}")
             return lst
         else:
             return None
@@ -350,7 +382,7 @@ class Shell:
         if file:
             return self.parse(load_file(file))
 
-        if not silent: log_failure(f"Could not find source for '{name}'")
+        if not silent: log.failure(f"Could not find source for '{name}'")
 
         return None
 
@@ -419,7 +451,7 @@ class Shell:
     def set(self,key,val,declared=False,protect=False,transient=False):
 
         if self.has(key):
-            if self._variable.get(key).get('protect'): log_failure(f"Cannot reset protected variable {key}")
+            if self._variable.get(key).get('protect'): log.failure(f"Cannot reset protected variable {key}")
 
         if val is None:
             del self._variable[key]
@@ -466,7 +498,7 @@ class Shell:
 
             return txt.format(**hsh)
 
-class Reader:
+class Prompt:
 
     def __init__(self,shell):
 
@@ -529,6 +561,24 @@ class Reader:
     def prompt(self,val):
 
         self._prompt = val
+
+    @staticmethod
+    def Driver():
+
+        def driver(self):
+
+            # Define atexit handler to deal with ctrl-c exit
+
+            atexit.register(lambda: self.shutdown())
+            log.debug(f"Registered atexit shutdown hook")
+
+            self.prompt = Prompt(self)
+            log.debug("Created prompt")
+
+            self.prompt.start()
+
+        return driver
+
 
 class Command:
 
@@ -597,7 +647,7 @@ class Command:
 
         if expect is not None:
             if expect!=tmp:
-                log_failure(f"Command expected '{expect}' but found '{tmp}'")
+                log.failure(f"Command expected '{expect}' but found '{tmp}'")
 
         return tmp
 
@@ -698,7 +748,7 @@ class Dictionary:
 
     def __getattr__(self,key):
 
-        if not self.has(key): return None # log_failure(f"Undefined dictionary entry {key} encountered")
+        if not self.has(key): return None # log.failure(f"Undefined dictionary entry {key} encountered")
         return self.cast(self.get(key))
 
     def __setattr__(self,key,value):
@@ -814,7 +864,7 @@ class Tokenizer:
     def expect(self,exp):
 
         ch = self.next()
-        if ch!=exp: log_failure(f"Expected '{exp}' but got '{ch}'")
+        if ch!=exp: log.failure(f"Expected '{exp}' but got '{ch}'")
 
     def skip_spaces(self):
 
@@ -830,7 +880,7 @@ class Tokenizer:
 
         word = ''
         while self.peek() not in ' =': word += self.next()
-        if is_empty(word): log_failure("Word is empty")
+        if is_empty(word): log.failure("Word is empty")
         return word
 
     def read_value(self):

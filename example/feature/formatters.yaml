@@ -1,0 +1,11 @@
+path:
+  temp: shell:/temp
+  common: shell:/../common
+module:
+  - shell:/module
+  - common:/module
+source:
+  - shell:/formatters
+  - common:/script
+feature:
+  - formatters

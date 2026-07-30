@@ -1,0 +1,3 @@
+# Invoke @test handler
+
+@test "hello world"

@@ -1,0 +1,17 @@
+shell.handler({
+
+    'create' : {
+
+        'table' : lambda self,verb,noun,cmnd : print(f"{verb} {noun} : {cmnd}"),
+        '*'     : lambda self,verb,noun,cmnd : print(f"{verb} *({noun}) : {cmnd}")
+
+    }
+
+})
+
+# -----
+# Test via prompt :
+#
+# 'table' : "create table ..."
+#  '*'    : "create view  ..."
+# -----

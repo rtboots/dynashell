@@ -1,0 +1,8 @@
+# Handler for @test
+
+def test(self,cmnd):
+    print(cmnd)
+
+# Register @test handler
+
+shell.macro("test",test)

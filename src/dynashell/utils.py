@@ -1,4 +1,5 @@
 import random
+import threading
 from decimal import Decimal
 from importlib import resources as resource_loader
 import yaml
@@ -11,30 +12,7 @@ import sys
 from pathlib import Path
 from types import ModuleType
 import inspect as inspect
-
-# log_ methods
-
-def log_debug(msg, fire=True):
-    if fire:
-        print(f"DEBUG   : ",msg)
-    pass
-
-def log_inform(msg, fire=True):
-    if fire:
-        print(f"INFORM  : ",msg)
-
-def log_warning(msg, fire=True):
-    if fire:
-        print(f"WARNING : ",msg)
-
-def log_error(msg, fire=True):
-    if fire:
-        print(f"ERROR   : ",msg)
-
-def log_failure(msg, fire=True):
-    if fire:
-        print(f"FAILURE : ", msg)
-        raise Exception(msg)
+import dynashell.logger as log
 
 # is_ methods
 
@@ -83,7 +61,7 @@ def choose(by, *lst, **hsh):
 
         return by if by is not None else lst[0]
 
-    log_failure("Unresolved choice")
+    log.failure("Unresolved choice")
     return None
 
 def get_environ(key):
@@ -96,7 +74,7 @@ def set_environ(key, val):
 
 def load_file(file):
 
-    if not is_file(file): log_failure(f"File '{file}' does not exist")
+    if not is_file(file): log.failure(f"File '{file}' does not exist")
     with open(file,'r') as f:
         data=f.read()
     return data
@@ -114,7 +92,7 @@ def kill_file(file):
 
 def load_yaml(file):
 
-    if not is_file(file): log_failure(f"File '{file}' does not exist")
+    if not is_file(file): log.failure(f"File '{file}' does not exist")
     with open(file,'r') as f:
         data = yaml.load(f,Loader=yaml.FullLoader)
     return data
@@ -131,7 +109,7 @@ def dump_yaml(data):
 
 def load_json(file):
 
-    if not is_file(file): log_failure(f"File '{file}' does not exist")
+    if not is_file(file): log.failure(f"File '{file}' does not exist")
     with open(file,'r') as f:
         data = json.load(f,object_hook=decimal_decoder)
     return data
@@ -180,7 +158,7 @@ def clear_dir(path):
 
             except Exception as e:
 
-                log_failure(f'Failed to delete {file_path}. Reason: {e}')
+                log.failure(f'Failed to delete {file_path}. Reason: {e}')
 
     else:
 
@@ -193,7 +171,7 @@ def reset_dir(path):
 
 def remove_dir(path):
 
-    shutil.rmtree(path,onerror = lambda _func,_path,_info : log_error(_info))
+    shutil.rmtree(path,onerror = lambda _func,_path,_info : log.error(_info))
 
 def unique_id(chrset="abcdefghijklmnopqrstuvwxyz", length=8):
 
@@ -267,7 +245,7 @@ def load_resource(filename, package=None):
         else:
             ret = load_file(filename)
 
-    if is_none(ret): log_failure(f"Could not load resource '{filename}'")
+    if is_none(ret): log.failure(f"Could not load resource '{filename}'")
 
     return ret
 
@@ -305,3 +283,21 @@ def str_to_type(txt):
         return txt[1:-1]
 
     return txt
+
+#
+
+_tlocal = threading.local()
+
+def tlocal(*args):
+
+    if len(args)==0:
+        return _tlocal
+
+    if len(args)==1:
+        return _tlocal.__dict__.get(args[0])
+
+    if len(args)==2:
+        _tlocal.__dict__[args[0]] = args[1]
+        return
+
+    log.failure("tlocal() can only be called with 0/1/2 arguments")

@@ -1,10 +1,6 @@
 import sys
 from dynashell.classes import Shell
 
-# Returns active shell instance
-def instance():
-    return Shell.Instance
-
 # Script hook behind 'dynashell' module script
 def run_shell():
     Shell(' '.join(sys.argv))

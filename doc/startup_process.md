@@ -12,5 +12,15 @@ dynashell <arguments>
 On startup the shell will try and read a configuration file and process it 
 (see [config](config_file.md))
 
+### Running from source
+
+If you have the source code locally you can run dynashell directly from the 
+source :
+
+```
+export PYTHONPATH=<path of source directort>
+python -m dynashell.main <arguments>
+```
+
 
 

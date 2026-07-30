@@ -1,28 +1,14 @@
 from textwrap import dedent
 
 from dynashell.utils import *
-
-# -----
-# Local instance of shell
-# -----
-
-_shell= None
-
-def shell(instance=None):
-    global _shell
-
-    if instance:
-        _shell = instance
-
-    return _shell
+import dynashell.logger as log
+from dynashell.classes import shell
 
 # -----
 # Feature : macros
 # -----
 
 def feature_macros(self):
-
-    shell(self)
 
     # Methods
 
@@ -39,7 +25,7 @@ def feature_macros(self):
         if len(args)==2:
 
             (typ,fnc)=args
-            if not is_none(self._macro.get(typ)) : log_warning(f"Macro for '@{typ}' already defined")
+            if not is_none(self._macro.get(typ)) : log.warning(f"Macro for '@{typ}' already defined")
             self._macro[typ] = fnc
 
     # System Macros
@@ -66,7 +52,7 @@ def feature_macros(self):
 
                 cmnd = Command(tail[1:])
 
-                if is_none(self._macro.get(cmnd.name)) : log_failure(f"Macro for '@{cmnd.name}' not defined")
+                if is_none(self._macro.get(cmnd.name)) : log.failure(f"Macro for '@{cmnd.name}' not defined")
 
                 body = self._macro.get(cmnd.name)(self,cmnd)
                 if body is None: body = ""
@@ -102,8 +88,6 @@ def feature_macros(self):
 
 def feature_handlers(self):
 
-    shell(self)
-
     # Methods
 
     def handler(self,*args): # wrd1,wrd2,fnc
@@ -127,7 +111,7 @@ def feature_handlers(self):
             if self._handler.get(verb) is None:
                 self._handler[verb] = {}
 
-            if not is_none(self._handler.get(verb).get(noun)): log_warning(f"Handler for '{verb} {noun}' already defined")
+            if not is_none(self._handler.get(verb).get(noun)): log.warning(f"Handler for '{verb} {noun}' already defined")
 
             self._handler[verb][noun] = fnc
 
@@ -176,8 +160,6 @@ def feature_handlers(self):
 
 def feature_formatters(self):
 
-    shell(self)
-
     # Methods
 
     def formatter(self,*args):
@@ -192,7 +174,7 @@ def feature_formatters(self):
         if len(args)==2:
             (typ,fnc)=args
 
-            if not is_none(self._formatter.get(typ)) : log_warning(f"Formatter for '{typ}' already defined")
+            if not is_none(self._formatter.get(typ)) : log.warning(f"Formatter for '{typ}' already defined")
             self._formatter[typ] = fnc
 
     # Parser
@@ -205,7 +187,7 @@ def feature_formatters(self):
             (typ,src) = src.split('\n',1)
             typ = typ[2:]
 
-            if is_none(self._formatter.get(typ)) : log_failure(f"Formatter for '{typ}' not defined")
+            if is_none(self._formatter.get(typ)) : log.failure(f"Formatter for '{typ}' not defined")
             src = self._formatter.get(typ)(self,src)
 
         return src
@@ -230,14 +212,11 @@ def feature_processors(self):
 
     from dynashell.classes import Dictionary
 
-    shell(self)
-
     # Context class
 
     class Context:
 
         def __init__(self, dat, hsh):
-            self.shell = _shell
             self._data = dat
             self._hash = hsh
             self.value = Dictionary(hsh, lambda val: self.render(val))
@@ -300,7 +279,7 @@ def feature_processors(self):
 
                 # ???
 
-                if is_none(self._hash.get(k)): log_failure(f"Required value {k} is missing")
+                if is_none(self._hash.get(k)): log.failure(f"Required value {k} is missing")
 
             return self
 
@@ -312,7 +291,7 @@ def feature_processors(self):
         def execute(self, src, **kwargs):
 
             src = dedent(self.render(src, **kwargs))
-            obj = self.shell.get("executor")
+            obj = shell().get("executor")
 
             if isinstance(obj,dict):
                 obj['execute'](src)
@@ -324,7 +303,7 @@ def feature_processors(self):
         def render(self, src, **kwargs):
 
             if isinstance(src, str):
-                return src.format(**self._hash, **kwargs, **self.shell.setting)
+                return src.format(**self._hash, **kwargs, **shell().setting)
             else:
                 return src
 
@@ -350,8 +329,8 @@ def feature_processors(self):
 
         @staticmethod
         def Invoke(key,*args, **kwargs):
-            fnc = _shell._processor.get(key)
-            if is_none(fnc): log_failure(f"Context method {key} has not been registered")
+            fnc = shell()._processor.get(key)
+            if is_none(fnc): log.failure(f"Context method {key} has not been registered")
             ctx = Context.Create(*args, **kwargs)
             fnc(ctx)
 
@@ -415,7 +394,7 @@ def feature_processors(self):
 
 def processor(fnc):
 
-    _shell.processor(fnc)
+    shell().processor(fnc)
     return fnc
 
 class Validator:
@@ -437,12 +416,12 @@ class Validator:
 
             if act['id'] == 'shift':
                 if val is None:
-                    log_failure(f"Value of {key} could not be shifted from empty command line", ctx.empty())
+                    log.failure(f"Value of {key} could not be shifted from empty command line", ctx.empty())
                     val = ctx.shift()
 
             if act['id'] == 'is_in':
                 lst = act['args']
-                log_failure(f"Value of {key} must be in {lst}",not is_val_in(val,*lst))
+                log.failure(f"Value of {key} must be in {lst}",not is_val_in(val,*lst))
 
         return val
 
@@ -457,13 +436,9 @@ def default(val=None):
 
 def feature_scripter(self):
 
-    shell(self)
-
     class Scripter:
 
-        def __init__(self,shell):
-
-            self.shell   = shell
+        def __init__(self):
             self.header  = ""
             self.handler = {}
 
@@ -504,7 +479,7 @@ def feature_scripter(self):
                     #
 
                     rslt = self.invoke(hdlr,text,body)
-                    if rslt is None: log_failure(f"Script has no handler for @{hdlr}")
+                    if rslt is None: log.failure(f"Script has no handler for @{hdlr}")
                     rslt = dedent(rslt)
                     for part in rslt.splitlines(): pycode += head + part + "\n"
 
@@ -512,8 +487,8 @@ def feature_scripter(self):
 
                     pycode += self.parse_line(line)
 
-            if self.shell.command.flag.get('debug',False):
-                print(f"=====\n{self.shell.command}\n{pycode}\n=====\n")
+            if shell().command.flag.get('debug',False):
+                print(f"=====\n{shell().command}\n{pycode}\n=====\n")
 
             return pycode
 
@@ -558,7 +533,7 @@ def feature_scripter(self):
                 bid = None
             else:
                 bid = unique_id()
-                self.shell.set(bid,body,transient=True)
+                shell().set(bid,body,transient=True)
                 bid = f"'{bid}'"
 
             return f"shell.scripter().execute('{hdlr}','{text}',{bid})"
@@ -572,52 +547,51 @@ def feature_scripter(self):
             text = text.strip()
 
             if len(text):
-                text = self.shell.render(text)
+                text = shell().render(text)
             else:
                 text = None
 
             if bid is None:
                 body = None
             else:
-                if self.shell.has(bid):
-                    body = dedent(self.shell.render(self.shell.get(bid),partial=True))
+                if shell().has(bid):
+                    body = dedent(shell().render(shell().get(bid),partial=True))
                 else:
                     #body = bid
-                    body = dedent(self.shell.render(bid,partial=True))
+                    body = dedent(shell().render(bid,partial=True))
 
             # scripter defined handler
 
             if self.handler.get(hdlr):
 
-                self.handler.get(hdlr)(self.shell, self.shell.command,text,body)
+                self.handler.get(hdlr)(shell(),shell().command,text,body)
                 return
 
             # source defined handler
 
-            if self.shell.resolve(hdlr):
+            if shell().resolve(hdlr):
 
                 from dynashell.classes import Command
                 if text is not None: hdlr += f" {text}"
-                cmnd = Command(f'{hdlr}',value=self.shell.command.value,flag=self.shell.command.flag) # data=self.shell.command.data,
+                cmnd = Command(f'{hdlr}',value=shell().command.value,flag=shell().command.flag) # data=shell().command.data,
                 cmnd.body = body
-                self.shell.execute(cmnd)
+                shell().execute(cmnd)
                 return
 
-            log_failure(f"Don't know how to handle {hdlr}")
+            log.failure(f"Don't know how to handle {hdlr}")
 
     self.feature({
 
         'field': {
-            '_scripter': Scripter(self)
+            '_scripter': Scripter()
         },
         'method': {
             'scripter': lambda self: self._scripter
         }
     })
 
-    def scripter(shell,script):
-
-        return shell.scripter().parse_script(script)
+    def scripter(script):
+        return shell().scripter().parse_script(script)
 
     self.formatter("scripter",scripter)
 
@@ -627,8 +601,6 @@ def feature_scripter(self):
 # -----
 
 def feature_forwarder(self):
-
-    shell(self)
 
     # Methods
 

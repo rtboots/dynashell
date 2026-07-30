@@ -1,0 +1,5 @@
+def test(self,src):
+
+    return f"print('''-----\n{src.upper()}-----''')"
+
+shell.formatter("test",test)
