@@ -219,7 +219,7 @@ def feature_processors(self):
         def __init__(self, dat, hsh):
             self._data = dat
             self._hash = hsh
-            self.value = Dictionary(hsh, lambda val: self.render(val))
+            self.value = Dictionary(hsh,__cast=lambda val: self.render(val))
 
         #
 

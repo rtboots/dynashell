@@ -677,98 +677,163 @@ class Command:
 
         return len(self.data)==0
 
-class Dictionary:
+class Collection:
 
-    Data   = {}
-    Render = {}
+    def __init__(self,*data,**kwargs):
+        self._data = [*data]
+        self._cast = kwargs.pop('__cast',lambda val : val)
 
-    def __init__(self,data=None,render=lambda val: val):
+    # Core methods
 
-        if data is None: data = {}
+    def cast(self,val):
+        if isinstance(val,dict): return Dictionary(**val,__cast=self._cast)
+        if isinstance(val,list): return Collection(*val,__cast=self._cast)
+        return self._cast(val)
 
-        Dictionary.Data[f"{id(self)}"]   = data
-        Dictionary.Render[f"{id(self)}"] = render
+    def size(self):
+        return len(self._data)
 
-    def data(self):
+    def get(self,idx):
+        return self.cast(self._data[idx])
 
-        return Dictionary.Data[f"{id(self)}"]
+    def add(self,val):
+        self._data.append(self.cast(val))
 
-    def render(self,value):
+    def pop(self):
+        return self.cast(self._data.pop())
 
-        return Dictionary.Render[f"{id(self)}"](value)
+    # IO methods
 
-    def set(self,key,value):
+    def load(self,*data):
+        self._data = [*data]
 
-        self.data()[key]=self.render(value)
+    def save(self):
 
-    def has(self,key):
+        ret = []
 
-        return key in self.data().keys()
+        for v in self:
+            if isinstance(v,Collection):
+                ret.append(v.save())
+            elif isinstance(v,Dictionary):
+                ret.append(v.save())
+            else:
+                ret.append(self.cast(v))
 
-    # dict api
+        return ret
 
-    def clear(self):
-        self.data().clear()
-
-    def copy(self):
-        return self.data().copy()
-
-    def fromkeys(self,keys,value=None):
-        return self.data().fromkeys(keys,value)
-
-    def get(self,key,value=None):
-        return self.data().get(key,value)
-
-    def items(self):
-        return self.data().items()
-
-    def keys(self):
-        return self.data().keys()
-
-    def pop(self,key,defval):
-        return self.data().pop(key,defval)
-
-    def popitem(self):
-        return self.data().popitem()
-
-    def setdefault(self,key,defval):
-        self.data().setdefault(key,self.render(defval))
-
-    def update(self,hash):
-        self.data().update(hash)
-
-    def values(self):
-        return self.data().values()
-
-    #
+    # __ methods
 
     def __str__(self):
-
-        return f"{self.data()}"
-
-    def __getattr__(self,key):
-
-        if not self.has(key): return None # log.failure(f"Undefined dictionary entry {key} encountered")
-        return self.cast(self.get(key))
-
-    def __setattr__(self,key,value):
-
-        self.data()[key]=self.render(value)
+        return json.dumps(self.save())
 
     def __getitem__(self,idx):
+        return self.get(idx)
+    #
 
+    @staticmethod
+    def Load(txt):
+        return Collection(json.loads(txt))
+
+class Dictionary:
+
+    Data = {}
+    Cast = {}
+
+    def __init__(self,data=None,**kwargs):
+        if data is None: data = {}
+        data.update(kwargs)
+        Dictionary.Data[f"{id(self)}"] = data
+        Dictionary.Cast[f"{id(self)}"] = data.pop('__cast',lambda val : val)
+
+    def _data(self):
+        return Dictionary.Data[f"{id(self)}"]
+
+    def _cast(self):
+        return Dictionary.Cast[f"{id(self)}"]
+
+    # Core methods
+
+    def cast(self,val):
+        if isinstance(val,dict): return Dictionary(**val,__cast=self._cast())
+        if isinstance(val,list): return Collection(*val,__cast=self._cast())
+        return self._cast()(val)
+
+    def set(self,key,val):
+        self._data()[key]=self.cast(val)
+        return self
+
+    def get(self,key,val=None):
+        val = self.cast(self._data().get(key, val))
+        self._data()[key] = val
+        return val
+
+    def pop(self,key):
+        return self.cast(self._data().pop(key))
+
+    def has(self, key):
+        return key in self._data().keys()
+
+    def keys(self):
+        return self._data().keys()
+
+    # def items(self):
+    #     return self._data().items()
+
+    #     dict api methods not implemented
+    #
+    #     def clear(self):
+    #     def copy(self):
+    #     def fromkeys(self,keys,value=None):
+    #     def popitem(self):
+    #     def setdefault(self,key,defval):
+    #     def update(self,hash):
+    #     def values(self):
+
+    # IO methods
+
+    def load(self,**data):
+        Dictionary.Data[f"{id(self)}"] = data
+
+    def save(self):
+        ret = {}
+
+        for k in self.keys():
+
+            v = self.get(k)
+            if isinstance(v,Collection):
+                ret[k]=v.save()
+            elif isinstance(v,Dictionary):
+                ret[k]=v.save()
+            else:
+                ret[k]=v
+
+        return ret
+
+    # __ methods
+
+    def __str__(self):
+        return json.dumps(self.save())
+
+    def __del__(self):
+        if Dictionary.Data.get(f"{id(self)}"):
+            del Dictionary.Data[f"{id(self)}"]
+
+    def __getattr__(self,key):
+        if not self.has(key): return None # log.failure(f"Undefined dictionary entry {key} encountered")
+        return self.get(key)
+
+    def __setattr__(self,key,val):
+        self.set(key,val)
+
+    def __getitem__(self, idx):
         return self.get(idx)
 
-    def __setitem__(self, idx, value):
+    def __setitem__(self,idx,val):
+        self.set(idx,val)
 
-        self.set(idx,self.render(value))
-
-    def cast(self,obj):
-
-        if isinstance(obj,dict):
-            return Dictionary(obj)
-        else:
-            return obj
+    @staticmethod
+    def Load(txt):
+        return Dictionary(**json.loads(txt))
 
 class Token:
 

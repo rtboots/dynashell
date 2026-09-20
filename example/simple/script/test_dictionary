@@ -1,0 +1,44 @@
+from dynashell.classes import Dictionary
+
+VALUES = {
+    'id' : 1234,
+    'os' : 'linux'
+}
+
+def render(val):
+    if isinstance(val, str):
+        return val.format(**VALUES)
+    else:
+        return val
+
+obj = Dictionary({
+
+    'test' : '{id} {os}',
+
+    'extra' : {
+
+        'list' : [
+            '{id} {os}',
+            1234,
+            'Hello world'
+        ]
+
+    },
+
+    'label' : 'Hello {os}'
+
+
+},__cast=render)
+
+print(obj.test)
+
+print(obj.extra.list)
+
+#print(obj.label)
+
+print(obj.save())
+
+for k in obj.keys():
+
+    v = obj[k]
+    print(f"{k:<6} = {v}")
