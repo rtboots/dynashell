@@ -1,6 +1,6 @@
 ## Dynashell
 
-A flexible shell to run Python snippets in a configurable context
+A flexible shell to run Python snippets in a configurable context.
 
 ### Description
 
